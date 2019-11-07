@@ -191,6 +191,11 @@ void KCMKWinDecoration::save()
             const QString plugin = index.data(KDecoration2::Configuration::DecorationsModel::PluginNameRole).toString();
             const QString theme = index.data(KDecoration2::Configuration::DecorationsModel::ThemeNameRole).toString();
             config.writeEntry(s_configPlugin, plugin);
+            if (QString(plugin) == "org.kde.kwin.aurorae") {
+                std::system("/usr/bin/feren-theme-tool-plasma disableshadowfix");
+            } else {
+                std::system("/usr/bin/feren-theme-tool-plasma shadowfix");
+            }
             config.writeEntry(s_configTheme, theme);
             qDebug() << "Saved theme: plugin" << plugin << "and theme" << theme;
         } else {
