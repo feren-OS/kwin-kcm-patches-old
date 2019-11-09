@@ -210,6 +210,9 @@ void KCMKWinDecoration::save()
     config.writeEntry(s_configDecoButtonsOnLeft, Utils::buttonsToString(m_currentSettings.buttonsOnLeft));
     config.writeEntry(s_configDecoButtonsOnRight, Utils::buttonsToString(m_currentSettings.buttonsOnRight));
     config.sync();
+    std::string leftbuttons = Utils::buttonsToString(m_currentSettings.buttonsOnLeft).toStdString();
+    std::string rightbuttons = Utils::buttonsToString(m_currentSettings.buttonsOnRight).toStdString();
+    std::system(("/usr/bin/plasma-wmlayout-apply "+leftbuttons+":"+rightbuttons+" --gtk-only").c_str());
 
     m_savedSettings = m_currentSettings;
 
