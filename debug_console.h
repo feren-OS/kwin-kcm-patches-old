@@ -39,8 +39,9 @@ class DebugConsole;
 namespace KWin
 {
 
-class Client;
-class ShellClient;
+class AbstractClient;
+class X11Client;
+class InternalClient;
 class Unmanaged;
 class DebugConsoleFilter;
 
@@ -72,15 +73,15 @@ private:
     void add(int parentRow, QVector<T*> &clients, T *client);
     template <class T>
     void remove(int parentRow, QVector<T*> &clients, T *client);
-    ShellClient *shellClient(const QModelIndex &index) const;
-    ShellClient *internalClient(const QModelIndex &index) const;
-    Client *x11Client(const QModelIndex &index) const;
+    AbstractClient *waylandClient(const QModelIndex &index) const;
+    InternalClient *internalClient(const QModelIndex &index) const;
+    X11Client *x11Client(const QModelIndex &index) const;
     Unmanaged *unmanaged(const QModelIndex &index) const;
     int topLevelRowCount() const;
 
-    QVector<ShellClient*> m_shellClients;
-    QVector<ShellClient*> m_internalClients;
-    QVector<Client*> m_x11Clients;
+    QVector<AbstractClient *> m_waylandClients;
+    QVector<InternalClient*> m_internalClients;
+    QVector<X11Client *> m_x11Clients;
     QVector<Unmanaged*> m_unmanageds;
 
 };
@@ -151,6 +152,12 @@ public:
     void swipeGestureCancelled(quint32 time) override;
 
     void switchEvent(SwitchEvent *event) override;
+
+    void tabletToolEvent(QTabletEvent *event) override;
+    void tabletToolButtonEvent(const QSet<uint> &pressedButtons) override;
+    void tabletPadButtonEvent(const QSet<uint> &pressedButtons) override;
+    void tabletPadStripEvent(int number, int position, bool isFinger) override;
+    void tabletPadRingEvent(int number, int position, bool isFinger) override;
 
 private:
     QTextEdit *m_textEdit;

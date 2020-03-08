@@ -31,12 +31,12 @@ class QSize;
 
 namespace KWin {
 class AbstractClient;
-class Client;
 class Toplevel;
+class X11Client;
 }
 
 typedef KWin::AbstractClient *KAbstractClientRef;
-typedef KWin::Client* KClientRef;
+typedef KWin::X11Client *KClientRef;
 typedef KWin::Toplevel* KToplevelRef;
 
 namespace KWin
@@ -83,7 +83,7 @@ QScriptValue toScriptValue(QScriptEngine *engine, const KAbstractClientRef &clie
 void fromScriptValue(const QScriptValue &value, KAbstractClientRef &client);
 }
 
-namespace Client
+namespace X11Client
 {
 QScriptValue toScriptValue(QScriptEngine *eng, const KClientRef &client);
 void fromScriptValue(const QScriptValue &value, KClientRef& client);

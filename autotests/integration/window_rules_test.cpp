@@ -20,7 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "kwin_wayland_test.h"
 #include "platform.h"
 #include "atoms.h"
-#include "client.h"
+#include "x11client.h"
 #include "cursor.h"
 #include "deleted.h"
 #include "screenedge.h"
@@ -28,7 +28,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "rules.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "shell_client.h"
 
 #include <netwm.h>
 #include <xcb/xcb_icccm.h>
@@ -52,7 +51,6 @@ private Q_SLOTS:
 
 void WindowRuleTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Deleted*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
@@ -142,7 +140,7 @@ void WindowRuleTest::testApplyInitialMaximizeVert()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.last().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
     QVERIFY(client);
     QVERIFY(client->isDecorated());
     QVERIFY(!client->hasStrut());
@@ -158,7 +156,7 @@ void WindowRuleTest::testApplyInitialMaximizeVert()
     QCOMPARE(client->maximizeMode(), MaximizeVertical);
 
     // destroy window again
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     xcb_unmap_window(c.data(), w);
     xcb_destroy_window(c.data(), w);
@@ -213,7 +211,7 @@ void WindowRuleTest::testWindowClassChange()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.last().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
     QVERIFY(client);
     QVERIFY(client->isDecorated());
     QVERIFY(!client->hasStrut());
@@ -229,7 +227,7 @@ void WindowRuleTest::testWindowClassChange()
     QCOMPARE(client->keepAbove(), false);
 
     // now change class
-    QSignalSpy windowClassChangedSpy{client, &Client::windowClassChanged};
+    QSignalSpy windowClassChangedSpy{client, &X11Client::windowClassChanged};
     QVERIFY(windowClassChangedSpy.isValid());
     xcb_icccm_set_wm_class(c.data(), w, 23, "org.kde.foo\0org.kde.foo");
     xcb_flush(c.data());
@@ -237,7 +235,7 @@ void WindowRuleTest::testWindowClassChange()
     QCOMPARE(client->keepAbove(), true);
 
     // destroy window
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     xcb_unmap_window(c.data(), w);
     xcb_destroy_window(c.data(), w);

@@ -48,7 +48,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QCommandLineParser>
 #include <QQuickWindow>
 #include <QStandardPaths>
-#include <QtDBus>
+#include <QTranslator>
+#include <QLibraryInfo>
 
 // system
 #ifdef HAVE_UNISTD_H
@@ -160,12 +161,19 @@ Application::~Application()
 {
     delete options;
     destroyAtoms();
+    destroyPlatform();
 }
 
 void Application::destroyAtoms()
 {
     delete atoms;
     atoms = nullptr;
+}
+
+void Application::destroyPlatform()
+{
+    delete m_platform;
+    m_platform = nullptr;
 }
 
 void Application::resetCrashesCount()
@@ -192,13 +200,16 @@ void Application::createAboutData()
                          QStringLiteral(KWIN_VERSION_STRING), // The program version string
                          i18n(description),                  // Short description of what the app does
                          KAboutLicense::GPL,            // The license this code is released under
-                         i18n("(c) 1999-2018, The KDE Developers"));   // Copyright Statement
+                         i18n("(c) 1999-2019, The KDE Developers"));   // Copyright Statement
 
     aboutData.addAuthor(i18n("Matthias Ettrich"), QString(), QStringLiteral("ettrich@kde.org"));
     aboutData.addAuthor(i18n("Cristian Tibirna"), QString(), QStringLiteral("tibirna@kde.org"));
     aboutData.addAuthor(i18n("Daniel M. Duley"),  QString(), QStringLiteral("mosfet@kde.org"));
     aboutData.addAuthor(i18n("Luboš Luňák"),      QString(), QStringLiteral("l.lunak@kde.org"));
     aboutData.addAuthor(i18n("Martin Flöser"),    QString(), QStringLiteral("mgraesslin@kde.org"));
+    aboutData.addAuthor(i18n("David Edmundson"),  QStringLiteral("Maintainer"), QStringLiteral("davidedmundson@kde.org"));
+    aboutData.addAuthor(i18n("Roman Gilg"),       QStringLiteral("Maintainer"), QStringLiteral("subdiff@gmail.com"));
+    aboutData.addAuthor(i18n("Vlad Zahorodnii"),  QStringLiteral("Maintainer"), QStringLiteral("vlad.zahorodnii@kde.org"));
     KAboutData::setApplicationData(aboutData);
 }
 
@@ -211,8 +222,6 @@ void Application::setupCommandLine(QCommandLineParser *parser)
     QCommandLineOption crashesOption(s_crashesOption, i18n("Indicate that KWin has recently crashed n times"), QStringLiteral("n"));
 
     parser->setApplicationDescription(i18n("KDE window manager"));
-    parser->addVersionOption();
-    parser->addHelpOption();
     parser->addOption(lockOption);
     parser->addOption(crashesOption);
     KAboutData::applicationData().setupCommandLine(parser);
@@ -255,17 +264,6 @@ void Application::setupMalloc()
 void Application::setupLocalizedString()
 {
     KLocalizedString::setApplicationDomain("kwin");
-}
-
-void Application::notifyKSplash()
-{
-    // Tell KSplash that KWin has started
-    QDBusMessage ksplashProgressMessage = QDBusMessage::createMethodCall(QStringLiteral("org.kde.KSplash"),
-                                                                            QStringLiteral("/KSplash"),
-                                                                            QStringLiteral("org.kde.KSplash"),
-                                                                            QStringLiteral("setStage"));
-    ksplashProgressMessage.setArguments(QList<QVariant>() << QStringLiteral("wm"));
-    QDBusConnection::sessionBus().asyncCall(ksplashProgressMessage);
 }
 
 void Application::createWorkspace()

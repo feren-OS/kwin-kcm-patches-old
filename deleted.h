@@ -33,8 +33,7 @@ namespace Decoration
 class Renderer;
 }
 
-class KWIN_EXPORT Deleted
-    : public Toplevel
+class KWIN_EXPORT Deleted : public Toplevel
 {
     Q_OBJECT
 
@@ -44,6 +43,10 @@ public:
     void refWindow();
     void unrefWindow();
     void discard();
+    QRect bufferGeometry() const override;
+    QMargins bufferMargins() const override;
+    QMargins frameMargins() const override;
+    qreal bufferScale() const override;
     int desktop() const override;
     QStringList activities() const override;
     QVector<VirtualDesktop *> desktops() const override;
@@ -59,7 +62,6 @@ public:
         return no_border;
     }
     void layoutDecorationRects(QRect &left, QRect &top, QRect &right, QRect &bottom) const;
-    QRect decorationRect() const override;
     Layer layer() const override {
         return m_layer;
     }
@@ -159,7 +161,7 @@ public:
      *
      * Because the window is Deleted, it can have only Deleted child transients.
      */
-    DeletedList transients() const {
+    QList<Deleted *> transients() const {
         return m_transients;
     }
 
@@ -198,6 +200,10 @@ private:
     void addTransientFor(AbstractClient *parent);
     void removeTransientFor(Deleted *parent);
 
+    QRect m_bufferGeometry;
+    QMargins m_bufferMargins;
+    QMargins m_frameMargins;
+
     int delete_refcount;
     int desk;
     QStringList activityList;
@@ -229,10 +235,11 @@ private:
     bool m_wasX11Client;
     bool m_wasWaylandClient;
     bool m_wasGroupTransient;
-    ToplevelList m_transientFor;
-    DeletedList m_transients;
+    QList<Toplevel *> m_transientFor;
+    QList<Deleted *> m_transients;
     bool m_wasPopupWindow;
     bool m_wasOutline;
+    qreal m_bufferScale = 1;
 };
 
 inline void Deleted::refWindow()

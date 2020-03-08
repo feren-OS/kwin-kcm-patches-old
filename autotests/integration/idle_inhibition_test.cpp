@@ -18,8 +18,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "platform.h"
-#include "shell_client.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
@@ -54,7 +54,6 @@ private Q_SLOTS:
 
 void TestIdleInhibition::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
 
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
@@ -84,12 +83,10 @@ void TestIdleInhibition::cleanup()
 
 void TestIdleInhibition::testInhibit_data()
 {
-    QTest::addColumn<Test::ShellSurfaceType>("type");
+    QTest::addColumn<Test::XdgShellSurfaceType>("type");
 
-    QTest::newRow("wlShell") << Test::ShellSurfaceType::WlShell;
-    QTest::newRow("xdgShellV5") << Test::ShellSurfaceType::XdgShellV5;
-    QTest::newRow("xdgShellV6") << Test::ShellSurfaceType::XdgShellV6;
-    QTest::newRow("xdgWmBase")  << Test::ShellSurfaceType::XdgShellStable;
+    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
+    QTest::newRow("xdgWmBase")  << Test::XdgShellSurfaceType::XdgShellStable;
 }
 
 void TestIdleInhibition::testInhibit()
@@ -102,8 +99,8 @@ void TestIdleInhibition::testInhibit()
 
     // now create window
     QScopedPointer<Surface> surface(Test::createSurface());
-    QFETCH(Test::ShellSurfaceType, type);
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(type, surface.data()));
+    QFETCH(Test::XdgShellSurfaceType, type);
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
 
     // now create inhibition on window
     QScopedPointer<IdleInhibitor> inhibitor(Test::waylandIdleInhibitManager()->createInhibitor(surface.data()));
@@ -127,9 +124,6 @@ void TestIdleInhibition::testInhibit()
     QVERIFY(idle->isInhibited());
 
     shellSurface.reset();
-    if (type == Test::ShellSurfaceType::WlShell) {
-        surface.reset();
-    }
     QVERIFY(Test::waitForWindowDestroyed(c));
     QTRY_VERIFY(!idle->isInhibited());
     QCOMPARE(inhibitedSpy.count(), 4);
@@ -273,7 +267,7 @@ void TestIdleInhibition::testDontInhibitWhenUnmapped()
     QCOMPARE(inhibitedSpy.count(), 1);
 
     // Unmap the client.
-    QSignalSpy hiddenSpy(c, &ShellClient::windowHidden);
+    QSignalSpy hiddenSpy(c, &AbstractClient::windowHidden);
     QVERIFY(hiddenSpy.isValid());
     surface->attachBuffer(Buffer::Ptr());
     surface->commit(Surface::CommitFlag::None);
@@ -285,7 +279,7 @@ void TestIdleInhibition::testDontInhibitWhenUnmapped()
     QCOMPARE(inhibitedSpy.count(), 2);
 
     // Map the client.
-    QSignalSpy windowShownSpy(c, &ShellClient::windowShown);
+    QSignalSpy windowShownSpy(c, &AbstractClient::windowShown);
     QVERIFY(windowShownSpy.isValid());
     Test::render(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(windowShownSpy.wait());

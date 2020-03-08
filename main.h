@@ -84,21 +84,21 @@ public:
         return m_config;
     }
     void setConfig(KSharedConfigPtr config) {
-        m_config = config;
+        m_config = std::move(config);
     }
 
     KSharedConfigPtr kxkbConfig() const {
         return m_kxkbConfig;
     }
     void setKxkbConfig(KSharedConfigPtr config) {
-        m_kxkbConfig = config;
+        m_kxkbConfig = std::move(config);
     }
 
     KSharedConfigPtr inputConfig() const {
         return m_inputConfig;
     }
     void setInputConfig(KSharedConfigPtr config) {
-        m_inputConfig = config;
+        m_inputConfig = std::move(config);
     }
 
     void start();
@@ -231,6 +231,7 @@ protected:
         emit x11ConnectionChanged();
     }
     void destroyAtoms();
+    void destroyPlatform();
 
     void setTerminating() {
         m_terminating = true;

@@ -40,7 +40,7 @@ class EglGbmBackend : public AbstractEglBackend
 {
     Q_OBJECT
 public:
-    EglGbmBackend(DrmBackend *b);
+    EglGbmBackend(DrmBackend *drmBackend);
     ~EglGbmBackend() override;
     void screenGeometryChanged(const QSize &size) override;
     SceneOpenGLTexturePrivate *createBackendTexture(SceneOpenGLTexture *texture) override;
@@ -71,12 +71,34 @@ private:
          * @brief The damage history for the past 10 frames.
          */
         QList<QRegion> damageHistory;
+
+        struct {
+            GLuint framebuffer = 0;
+            GLuint texture = 0;
+            std::shared_ptr<GLVertexBuffer> vbo;
+        } render;
     };
+
+    void createOutput(DrmOutput *drmOutput);
     bool resetOutput(Output &output, DrmOutput *drmOutput);
-    bool makeContextCurrent(const Output &output);
+    std::shared_ptr<GbmSurface> createGbmSurface(const QSize &size) const;
+    EGLSurface createEglSurface(std::shared_ptr<GbmSurface> gbmSurface) const;
+
+    bool makeContextCurrent(const Output &output) const;
+    void setViewport(const Output &output) const;
+
+    bool resetFramebuffer(Output &output);
+    void initRenderTarget(Output &output);
+
+    void prepareRenderFramebuffer(const Output &output) const;
+    void renderFramebufferToSurface(Output &output);
+
     void presentOnOutput(Output &output);
-    void cleanupOutput(const Output &output);
-    void createOutput(DrmOutput *output);
+
+    void removeOutput(DrmOutput *drmOutput);
+    void cleanupOutput(Output &output);
+    void cleanupFramebuffer(Output &output);
+
     DrmBackend *m_backend;
     QVector<Output> m_outputs;
     QScopedPointer<RemoteAccessManager> m_remoteaccessManager;

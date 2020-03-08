@@ -3,7 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2011 Thomas Lübking <thomas.luebking@web.de>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -76,7 +76,7 @@ public:
     AniData();
     AniData(AnimationEffect::Attribute a, int meta, const FPx2 &to,
             int delay, const FPx2 &from, bool waitAtSource,
-            FullScreenEffectLockPtr=FullScreenEffectLockPtr(),
+            FullScreenEffectLockPtr =FullScreenEffectLockPtr(),
             bool keepAlive = true, PreviousWindowPixmapLockPtr previousWindowPixmapLock = {});
 
     bool isActive() const;

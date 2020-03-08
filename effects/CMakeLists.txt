@@ -1,7 +1,7 @@
 # KI18N Translation Domain for this library
 add_definitions(-DTRANSLATION_DOMAIN=\"kwin_effects\" -DEFFECT_BUILTINS)
 
-include_directories(${KWIN_SOURCE_DIR}) # for xcbutils.h
+include_directories(${KWin_SOURCE_DIR}) # for xcbutils.h
 
 set(kwin_effect_OWN_LIBS
     kwineffects
@@ -16,10 +16,8 @@ set(kwin_effect_KDE_LIBS
     KF5::ConfigWidgets
     KF5::GlobalAccel
     KF5::I18n
-    KF5::IconThemes
     KF5::Notifications # screenshot effect
     KF5::Plasma # screenedge effect
-    KF5::Service
     KF5::WindowSystem
 )
 
@@ -157,6 +155,7 @@ install_scripted_effect(scale)
 install_scripted_effect(squash)
 install_scripted_effect(translucency)
 install_scripted_effect(windowaperture)
+install_scripted_effect(sessionquit)
 
 ###############################################################################
 # Built-in effects go here

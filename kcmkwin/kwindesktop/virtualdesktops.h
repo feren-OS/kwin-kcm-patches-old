@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2018 Eike Hein <hein@kde.org>
- * Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+ * Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,8 +19,10 @@
 #ifndef VIRTUALDESKTOPS_H
 #define VIRTUALDESKTOPS_H
 
-#include <KQuickAddons/ConfigModule>
+#include <KQuickAddons/ManagedConfigModule>
 #include <KSharedConfig>
+
+class VirtualDesktopsSettings;
 
 namespace KWin
 {
@@ -28,16 +30,13 @@ namespace KWin
 class AnimationsModel;
 class DesktopsModel;
 
-class VirtualDesktops : public KQuickAddons::ConfigModule
+class VirtualDesktops : public KQuickAddons::ManagedConfigModule
 {
     Q_OBJECT
 
     Q_PROPERTY(QAbstractItemModel* desktopsModel READ desktopsModel CONSTANT)
-    Q_PROPERTY(bool navWraps READ navWraps WRITE setNavWraps NOTIFY navWrapsChanged)
-    Q_PROPERTY(bool osdEnabled READ osdEnabled WRITE setOsdEnabled NOTIFY osdEnabledChanged)
-    Q_PROPERTY(int osdDuration READ osdDuration WRITE setOsdDuration NOTIFY osdDurationChanged)
-    Q_PROPERTY(bool osdTextOnly READ osdTextOnly WRITE setOsdTextOnly NOTIFY osdTextOnlyChanged)
     Q_PROPERTY(QAbstractItemModel *animationsModel READ animationsModel CONSTANT)
+    Q_PROPERTY(VirtualDesktopsSettings *virtualDesktopsSettings READ virtualDesktopsSettings CONSTANT)
 
 public:
     explicit VirtualDesktops(QObject *parent = nullptr, const QVariantList &list = QVariantList());
@@ -45,25 +44,12 @@ public:
 
     QAbstractItemModel *desktopsModel() const;
 
-    bool navWraps() const;
-    void setNavWraps(bool wraps);
-
-    bool osdEnabled() const;
-    void setOsdEnabled(bool enabled);
-
-    int osdDuration() const;
-    void setOsdDuration(int duration);
-
-    int osdTextOnly() const;
-    void setOsdTextOnly(bool textOnly);
-
     QAbstractItemModel *animationsModel() const;
 
-Q_SIGNALS:
-    void navWrapsChanged() const;
-    void osdEnabledChanged() const;
-    void osdDurationChanged() const;
-    void osdTextOnlyChanged() const;
+    VirtualDesktopsSettings *virtualDesktopsSettings() const;
+
+    bool isDefaults() const override;
+    bool isSaveNeeded() const override;
 
 public Q_SLOTS:
     void load() override;
@@ -73,16 +59,9 @@ public Q_SLOTS:
     void configureAnimation();
     void showAboutAnimation();
 
-private Q_SLOTS:
-    void updateNeedsSave();
-
 private:
-    KSharedConfigPtr m_kwinConfig;
+    VirtualDesktopsSettings *m_settings;
     DesktopsModel *m_desktopsModel;
-    bool m_navWraps;
-    bool m_osdEnabled;
-    int m_osdDuration;
-    bool m_osdTextOnly;
     AnimationsModel *m_animationsModel;
 };
 

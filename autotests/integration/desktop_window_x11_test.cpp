@@ -18,15 +18,15 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "platform.h"
-#include "client.h"
+#include "x11client.h"
 #include "cursor.h"
 #include "deleted.h"
 #include "screenedge.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "shell_client.h"
 #include "xcbutils.h"
 #include <kwineffects.h>
 
@@ -52,7 +52,6 @@ private:
 
 void X11DesktopWindowTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Deleted*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
@@ -151,12 +150,12 @@ void X11DesktopWindowTest::testDesktopWindow()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.first().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(client);
     QCOMPARE(client->window(), w);
     QVERIFY(!client->isDecorated());
     QCOMPARE(client->windowType(), NET::Desktop);
-    QCOMPARE(client->geometry(), windowGeometry);
+    QCOMPARE(client->frameGeometry(), windowGeometry);
     QVERIFY(client->isDesktop());
     QCOMPARE(client->depth(), 24);
     QVERIFY(!client->hasAlpha());
@@ -167,7 +166,7 @@ void X11DesktopWindowTest::testDesktopWindow()
     xcb_flush(c.data());
     c.reset();
 
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     QVERIFY(windowClosedSpy.wait());
 }

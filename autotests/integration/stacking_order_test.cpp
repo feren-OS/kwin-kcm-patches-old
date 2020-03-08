@@ -2,7 +2,7 @@
 KWin - the KDE window manager
 This file is part of the KDE project.
 
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -22,16 +22,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "abstract_client.h"
 #include "atoms.h"
-#include "client.h"
+#include "x11client.h"
 #include "deleted.h"
 #include "main.h"
 #include "platform.h"
-#include "shell_client.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
 #include <KWayland/Client/compositor.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
 
 #include <xcb/xcb.h>
@@ -68,7 +66,6 @@ void StackingOrderTest::initTestCase()
 {
     qRegisterMetaType<KWin::AbstractClient *>();
     qRegisterMetaType<KWin::Deleted *>();
-    qRegisterMetaType<KWin::ShellClient *>();
 
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -100,39 +97,39 @@ void StackingOrderTest::testTransientIsAboveParent()
     KWayland::Client::Surface *parentSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(parentSurface);
-    KWayland::Client::ShellSurface *parentShellSurface =
-        Test::createShellSurface(parentSurface, parentSurface);
+    KWayland::Client::XdgShellSurface *parentShellSurface =
+        Test::createXdgShellStableSurface(parentSurface, parentSurface);
     QVERIFY(parentShellSurface);
-    ShellClient *parent = Test::renderAndWaitForShown(parentSurface, QSize(256, 256), Qt::blue);
+    AbstractClient *parent = Test::renderAndWaitForShown(parentSurface, QSize(256, 256), Qt::blue);
     QVERIFY(parent);
     QVERIFY(parent->isActive());
     QVERIFY(!parent->isTransient());
 
     // Initially, the stacking order should contain only the parent window.
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent}));
 
     // Create the transient.
     KWayland::Client::Surface *transientSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(transientSurface);
-    KWayland::Client::ShellSurface *transientShellSurface =
-        Test::createShellSurface(transientSurface, transientSurface);
+    KWayland::Client::XdgShellSurface *transientShellSurface =
+        Test::createXdgShellStableSurface(transientSurface, transientSurface);
     QVERIFY(transientShellSurface);
-    transientShellSurface->setTransient(parentSurface, QPoint(0, 0));
-    ShellClient *transient = Test::renderAndWaitForShown(
+    transientShellSurface->setTransientFor(parentShellSurface);
+    AbstractClient *transient = Test::renderAndWaitForShown(
         transientSurface, QSize(128, 128), Qt::red);
     QVERIFY(transient);
     QVERIFY(transient->isActive());
     QVERIFY(transient->isTransient());
 
     // The transient should be above the parent.
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient}));
 
     // The transient still stays above the parent if we activate the latter.
     workspace()->activateClient(parent);
     QTRY_VERIFY(parent->isActive());
     QTRY_VERIFY(!transient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient}));
 }
 
 void StackingOrderTest::testRaiseTransient()
@@ -144,69 +141,69 @@ void StackingOrderTest::testRaiseTransient()
     KWayland::Client::Surface *parentSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(parentSurface);
-    KWayland::Client::ShellSurface *parentShellSurface =
-        Test::createShellSurface(parentSurface, parentSurface);
+    KWayland::Client::XdgShellSurface *parentShellSurface =
+        Test::createXdgShellStableSurface(parentSurface, parentSurface);
     QVERIFY(parentShellSurface);
-    ShellClient *parent = Test::renderAndWaitForShown(parentSurface, QSize(256, 256), Qt::blue);
+    AbstractClient *parent = Test::renderAndWaitForShown(parentSurface, QSize(256, 256), Qt::blue);
     QVERIFY(parent);
     QVERIFY(parent->isActive());
     QVERIFY(!parent->isTransient());
 
     // Initially, the stacking order should contain only the parent window.
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent}));
 
     // Create the transient.
     KWayland::Client::Surface *transientSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(transientSurface);
-    KWayland::Client::ShellSurface *transientShellSurface =
-        Test::createShellSurface(transientSurface, transientSurface);
+    KWayland::Client::XdgShellSurface *transientShellSurface =
+        Test::createXdgShellStableSurface(transientSurface, transientSurface);
     QVERIFY(transientShellSurface);
-    transientShellSurface->setTransient(parentSurface, QPoint(0, 0));
-    ShellClient *transient = Test::renderAndWaitForShown(
+    transientShellSurface->setTransientFor(parentShellSurface);
+    AbstractClient *transient = Test::renderAndWaitForShown(
         transientSurface, QSize(128, 128), Qt::red);
     QVERIFY(transient);
     QTRY_VERIFY(transient->isActive());
     QVERIFY(transient->isTransient());
 
     // The transient should be above the parent.
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient}));
 
     // Create a window that doesn't have any relationship to the parent or the transient.
     KWayland::Client::Surface *anotherSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(anotherSurface);
-    KWayland::Client::ShellSurface *anotherShellSurface =
-        Test::createShellSurface(anotherSurface, anotherSurface);
+    KWayland::Client::XdgShellSurface *anotherShellSurface =
+        Test::createXdgShellStableSurface(anotherSurface, anotherSurface);
     QVERIFY(anotherShellSurface);
-    ShellClient *anotherClient = Test::renderAndWaitForShown(anotherSurface, QSize(128, 128), Qt::green);
+    AbstractClient *anotherClient = Test::renderAndWaitForShown(anotherSurface, QSize(128, 128), Qt::green);
     QVERIFY(anotherClient);
     QVERIFY(anotherClient->isActive());
     QVERIFY(!anotherClient->isTransient());
 
     // The newly created surface has to be above both the parent and the transient.
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient, anotherClient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient, anotherClient}));
 
     // If we activate the parent, the transient should be raised too.
     workspace()->activateClient(parent);
     QTRY_VERIFY(parent->isActive());
     QTRY_VERIFY(!transient->isActive());
     QTRY_VERIFY(!anotherClient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{anotherClient, parent, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{anotherClient, parent, transient}));
 
     // Go back to the initial setup.
     workspace()->activateClient(anotherClient);
     QTRY_VERIFY(!parent->isActive());
     QTRY_VERIFY(!transient->isActive());
     QTRY_VERIFY(anotherClient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient, anotherClient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient, anotherClient}));
 
     // If we activate the transient, the parent should be raised too.
     workspace()->activateClient(transient);
     QTRY_VERIFY(!parent->isActive());
     QTRY_VERIFY(transient->isActive());
     QTRY_VERIFY(!anotherClient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{anotherClient, parent, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{anotherClient, parent, transient}));
 }
 
 struct WindowUnrefDeleter
@@ -227,49 +224,49 @@ void StackingOrderTest::testDeletedTransient()
     KWayland::Client::Surface *parentSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(parentSurface);
-    KWayland::Client::ShellSurface *parentShellSurface =
-        Test::createShellSurface(parentSurface, parentSurface);
+    KWayland::Client::XdgShellSurface *parentShellSurface =
+        Test::createXdgShellStableSurface(parentSurface, parentSurface);
     QVERIFY(parentShellSurface);
-    ShellClient *parent = Test::renderAndWaitForShown(parentSurface, QSize(256, 256), Qt::blue);
+    AbstractClient *parent = Test::renderAndWaitForShown(parentSurface, QSize(256, 256), Qt::blue);
     QVERIFY(parent);
     QVERIFY(parent->isActive());
     QVERIFY(!parent->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent}));
 
     // Create the first transient.
     KWayland::Client::Surface *transient1Surface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(transient1Surface);
-    KWayland::Client::ShellSurface *transient1ShellSurface =
-        Test::createShellSurface(transient1Surface, transient1Surface);
+    KWayland::Client::XdgShellSurface *transient1ShellSurface =
+        Test::createXdgShellStableSurface(transient1Surface, transient1Surface);
     QVERIFY(transient1ShellSurface);
-    transient1ShellSurface->setTransient(parentSurface, QPoint(0, 0));
-    ShellClient *transient1 = Test::renderAndWaitForShown(
+    transient1ShellSurface->setTransientFor(parentShellSurface);
+    AbstractClient *transient1 = Test::renderAndWaitForShown(
         transient1Surface, QSize(128, 128), Qt::red);
     QVERIFY(transient1);
     QTRY_VERIFY(transient1->isActive());
     QVERIFY(transient1->isTransient());
     QCOMPARE(transient1->transientFor(), parent);
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient1}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient1}));
 
     // Create the second transient.
     KWayland::Client::Surface *transient2Surface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(transient2Surface);
-    KWayland::Client::ShellSurface *transient2ShellSurface =
-        Test::createShellSurface(transient2Surface, transient2Surface);
+    KWayland::Client::XdgShellSurface *transient2ShellSurface =
+        Test::createXdgShellStableSurface(transient2Surface, transient2Surface);
     QVERIFY(transient2ShellSurface);
-    transient2ShellSurface->setTransient(transient1Surface, QPoint(0, 0));
-    ShellClient *transient2 = Test::renderAndWaitForShown(
+    transient2ShellSurface->setTransientFor(transient1ShellSurface);
+    AbstractClient *transient2 = Test::renderAndWaitForShown(
         transient2Surface, QSize(128, 128), Qt::red);
     QVERIFY(transient2);
     QTRY_VERIFY(transient2->isActive());
     QVERIFY(transient2->isTransient());
     QCOMPARE(transient2->transientFor(), transient1);
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient1, transient2}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient1, transient2}));
 
     // Activate the parent, both transients have to be above it.
     workspace()->activateClient(parent);
@@ -278,14 +275,14 @@ void StackingOrderTest::testDeletedTransient()
     QTRY_VERIFY(!transient2->isActive());
 
     // Close the top-most transient.
-    connect(transient2, &ShellClient::windowClosed, this,
+    connect(transient2, &AbstractClient::windowClosed, this,
         [](Toplevel *toplevel, Deleted *deleted) {
             Q_UNUSED(toplevel)
             deleted->refWindow();
         }
     );
 
-    QSignalSpy windowClosedSpy(transient2, &ShellClient::windowClosed);
+    QSignalSpy windowClosedSpy(transient2, &AbstractClient::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     delete transient2ShellSurface;
     delete transient2Surface;
@@ -298,7 +295,7 @@ void StackingOrderTest::testDeletedTransient()
     // The deleted transient still has to be above its old parent (transient1).
     QTRY_VERIFY(parent->isActive());
     QTRY_VERIFY(!transient1->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{parent, transient1, deletedTransient.data()}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{parent, transient1, deletedTransient.data()}));
 }
 
 static xcb_window_t createGroupWindow(xcb_connection_t *conn,
@@ -371,13 +368,13 @@ void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *leader = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *leader = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(leader);
     QVERIFY(leader->isActive());
     QCOMPARE(leader->windowId(), leaderWid);
     QVERIFY(!leader->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader}));
 
     // Create another group member.
     windowCreatedSpy.clear();
@@ -386,14 +383,14 @@ void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member1 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member1 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member1);
     QVERIFY(member1->isActive());
     QCOMPARE(member1->windowId(), member1Wid);
     QCOMPARE(member1->group(), leader->group());
     QVERIFY(!member1->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1}));
 
     // Create yet another group member.
     windowCreatedSpy.clear();
@@ -402,14 +399,14 @@ void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member2 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member2 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member2);
     QVERIFY(member2->isActive());
     QCOMPARE(member2->windowId(), member2Wid);
     QCOMPARE(member2->group(), leader->group());
     QVERIFY(!member2->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2}));
 
     // Create a group transient.
     windowCreatedSpy.clear();
@@ -440,7 +437,7 @@ void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *transient = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *transient = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(transient);
     QVERIFY(transient->isActive());
     QCOMPARE(transient->windowId(), transientWid);
@@ -449,24 +446,24 @@ void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
     QVERIFY(transient->groupTransient());
     QVERIFY(!transient->isDialog()); // See above why
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 
     // If we activate any member of the window group, the transient will be above it.
     workspace()->activateClient(leader);
     QTRY_VERIFY(leader->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member1, member2, leader, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member1, member2, leader, transient}));
 
     workspace()->activateClient(member1);
     QTRY_VERIFY(member1->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member2, leader, member1, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member2, leader, member1, transient}));
 
     workspace()->activateClient(member2);
     QTRY_VERIFY(member2->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 
     workspace()->activateClient(transient);
     QTRY_VERIFY(transient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 }
 
 void StackingOrderTest::testRaiseGroupTransient()
@@ -485,13 +482,13 @@ void StackingOrderTest::testRaiseGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *leader = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *leader = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(leader);
     QVERIFY(leader->isActive());
     QCOMPARE(leader->windowId(), leaderWid);
     QVERIFY(!leader->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader}));
 
     // Create another group member.
     windowCreatedSpy.clear();
@@ -500,14 +497,14 @@ void StackingOrderTest::testRaiseGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member1 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member1 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member1);
     QVERIFY(member1->isActive());
     QCOMPARE(member1->windowId(), member1Wid);
     QCOMPARE(member1->group(), leader->group());
     QVERIFY(!member1->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1}));
 
     // Create yet another group member.
     windowCreatedSpy.clear();
@@ -516,14 +513,14 @@ void StackingOrderTest::testRaiseGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member2 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member2 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member2);
     QVERIFY(member2->isActive());
     QCOMPARE(member2->windowId(), member2Wid);
     QCOMPARE(member2->group(), leader->group());
     QVERIFY(!member2->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2}));
 
     // Create a group transient.
     windowCreatedSpy.clear();
@@ -554,7 +551,7 @@ void StackingOrderTest::testRaiseGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *transient = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *transient = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(transient);
     QVERIFY(transient->isActive());
     QCOMPARE(transient->windowId(), transientWid);
@@ -563,41 +560,41 @@ void StackingOrderTest::testRaiseGroupTransient()
     QVERIFY(transient->groupTransient());
     QVERIFY(!transient->isDialog()); // See above why
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 
     // Create a Wayland client that is not a member of the window group.
     KWayland::Client::Surface *anotherSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(anotherSurface);
-    KWayland::Client::ShellSurface *anotherShellSurface =
-        Test::createShellSurface(anotherSurface, anotherSurface);
+    KWayland::Client::XdgShellSurface *anotherShellSurface =
+        Test::createXdgShellStableSurface(anotherSurface, anotherSurface);
     QVERIFY(anotherShellSurface);
-    ShellClient *anotherClient = Test::renderAndWaitForShown(anotherSurface, QSize(128, 128), Qt::green);
+    AbstractClient *anotherClient = Test::renderAndWaitForShown(anotherSurface, QSize(128, 128), Qt::green);
     QVERIFY(anotherClient);
     QVERIFY(anotherClient->isActive());
     QVERIFY(!anotherClient->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient, anotherClient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient, anotherClient}));
 
     // If we activate the leader, then only it and the transient have to be raised.
     workspace()->activateClient(leader);
     QTRY_VERIFY(leader->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member1, member2, anotherClient, leader, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member1, member2, anotherClient, leader, transient}));
 
     // If another member of the window group is activated, then the transient will
     // be above that member and the leader.
     workspace()->activateClient(member2);
     QTRY_VERIFY(member2->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member1, anotherClient, leader, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member1, anotherClient, leader, member2, transient}));
 
     // FIXME: If we activate the transient, only it will be raised.
     workspace()->activateClient(anotherClient);
     QTRY_VERIFY(anotherClient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member1, leader, member2, transient, anotherClient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member1, leader, member2, transient, anotherClient}));
 
     workspace()->activateClient(transient);
     QTRY_VERIFY(transient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member1, leader, member2, anotherClient, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member1, leader, member2, anotherClient, transient}));
 }
 
 void StackingOrderTest::testDeletedGroupTransient()
@@ -619,13 +616,13 @@ void StackingOrderTest::testDeletedGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *leader = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *leader = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(leader);
     QVERIFY(leader->isActive());
     QCOMPARE(leader->windowId(), leaderWid);
     QVERIFY(!leader->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader}));
 
     // Create another group member.
     windowCreatedSpy.clear();
@@ -634,14 +631,14 @@ void StackingOrderTest::testDeletedGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member1 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member1 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member1);
     QVERIFY(member1->isActive());
     QCOMPARE(member1->windowId(), member1Wid);
     QCOMPARE(member1->group(), leader->group());
     QVERIFY(!member1->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1}));
 
     // Create yet another group member.
     windowCreatedSpy.clear();
@@ -650,14 +647,14 @@ void StackingOrderTest::testDeletedGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member2 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member2 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member2);
     QVERIFY(member2->isActive());
     QCOMPARE(member2->windowId(), member2Wid);
     QCOMPARE(member2->group(), leader->group());
     QVERIFY(!member2->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2}));
 
     // Create a group transient.
     windowCreatedSpy.clear();
@@ -688,7 +685,7 @@ void StackingOrderTest::testDeletedGroupTransient()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *transient = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *transient = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(transient);
     QVERIFY(transient->isActive());
     QCOMPARE(transient->windowId(), transientWid);
@@ -697,17 +694,17 @@ void StackingOrderTest::testDeletedGroupTransient()
     QVERIFY(transient->groupTransient());
     QVERIFY(!transient->isDialog()); // See above why
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 
     // Unmap the transient.
-    connect(transient, &Client::windowClosed, this,
+    connect(transient, &X11Client::windowClosed, this,
         [](Toplevel *toplevel, Deleted *deleted) {
             Q_UNUSED(toplevel)
             deleted->refWindow();
         }
     );
 
-    QSignalSpy windowClosedSpy(transient, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(transient, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     xcb_unmap_window(conn.data(), transientWid);
     xcb_flush(conn.data());
@@ -718,7 +715,7 @@ void StackingOrderTest::testDeletedGroupTransient()
     QVERIFY(deletedTransient.data());
 
     // The transient has to be above each member of the window group.
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, deletedTransient.data()}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, deletedTransient.data()}));
 }
 
 void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
@@ -739,13 +736,13 @@ void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *leader = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *leader = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(leader);
     QVERIFY(leader->isActive());
     QCOMPARE(leader->windowId(), leaderWid);
     QVERIFY(!leader->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader}));
 
     // Create another group member.
     windowCreatedSpy.clear();
@@ -754,14 +751,14 @@ void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member1 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member1 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member1);
     QVERIFY(member1->isActive());
     QCOMPARE(member1->windowId(), member1Wid);
     QCOMPARE(member1->group(), leader->group());
     QVERIFY(!member1->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1}));
 
     // Create yet another group member.
     windowCreatedSpy.clear();
@@ -770,14 +767,14 @@ void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *member2 = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *member2 = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(member2);
     QVERIFY(member2->isActive());
     QCOMPARE(member2->windowId(), member2Wid);
     QCOMPARE(member2->group(), leader->group());
     QVERIFY(!member2->isTransient());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2}));
 
     // Create a group transient.
     windowCreatedSpy.clear();
@@ -787,7 +784,7 @@ void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
     xcb_flush(conn.data());
 
     QVERIFY(windowCreatedSpy.wait());
-    Client *transient = windowCreatedSpy.first().first().value<Client *>();
+    X11Client *transient = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(transient);
     QVERIFY(transient->isActive());
     QCOMPARE(transient->windowId(), transientWid);
@@ -797,23 +794,23 @@ void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
     QVERIFY(transient->isDialog());
     QVERIFY(!transient->isModal());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 
     workspace()->activateClient(leader);
     QTRY_VERIFY(leader->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member1, member2, transient, leader}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member1, member2, transient, leader}));
 
     workspace()->activateClient(member1);
     QTRY_VERIFY(member1->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{member2, transient, leader, member1}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{member2, transient, leader, member1}));
 
     workspace()->activateClient(member2);
     QTRY_VERIFY(member2->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{transient, leader, member1, member2}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{transient, leader, member1, member2}));
 
     workspace()->activateClient(transient);
     QTRY_VERIFY(transient->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{leader, member1, member2, transient}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{leader, member1, member2, transient}));
 }
 
 void StackingOrderTest::testKeepAbove()
@@ -824,34 +821,34 @@ void StackingOrderTest::testKeepAbove()
     KWayland::Client::Surface *clientASurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(clientASurface);
-    KWayland::Client::ShellSurface *clientAShellSurface =
-        Test::createShellSurface(clientASurface, clientASurface);
+    KWayland::Client::XdgShellSurface *clientAShellSurface =
+        Test::createXdgShellStableSurface(clientASurface, clientASurface);
     QVERIFY(clientAShellSurface);
-    ShellClient *clientA = Test::renderAndWaitForShown(clientASurface, QSize(128, 128), Qt::green);
+    AbstractClient *clientA = Test::renderAndWaitForShown(clientASurface, QSize(128, 128), Qt::green);
     QVERIFY(clientA);
     QVERIFY(clientA->isActive());
     QVERIFY(!clientA->keepAbove());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientA}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientA}));
 
     // Create the second client.
     KWayland::Client::Surface *clientBSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(clientBSurface);
-    KWayland::Client::ShellSurface *clientBShellSurface =
-        Test::createShellSurface(clientBSurface, clientBSurface);
+    KWayland::Client::XdgShellSurface *clientBShellSurface =
+        Test::createXdgShellStableSurface(clientBSurface, clientBSurface);
     QVERIFY(clientBShellSurface);
-    ShellClient *clientB = Test::renderAndWaitForShown(clientBSurface, QSize(128, 128), Qt::green);
+    AbstractClient *clientB = Test::renderAndWaitForShown(clientBSurface, QSize(128, 128), Qt::green);
     QVERIFY(clientB);
     QVERIFY(clientB->isActive());
     QVERIFY(!clientB->keepAbove());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientA, clientB}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientA, clientB}));
 
     // Go to the initial test position.
     workspace()->activateClient(clientA);
     QTRY_VERIFY(clientA->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientB, clientA}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientB, clientA}));
 
     // Set the "keep-above" flag on the client B, it should go above other clients.
     {
@@ -861,7 +858,7 @@ void StackingOrderTest::testKeepAbove()
 
     QVERIFY(clientB->keepAbove());
     QVERIFY(!clientB->isActive());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientA, clientB}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientA, clientB}));
 }
 
 void StackingOrderTest::testKeepBelow()
@@ -872,29 +869,29 @@ void StackingOrderTest::testKeepBelow()
     KWayland::Client::Surface *clientASurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(clientASurface);
-    KWayland::Client::ShellSurface *clientAShellSurface =
-        Test::createShellSurface(clientASurface, clientASurface);
+    KWayland::Client::XdgShellSurface *clientAShellSurface =
+        Test::createXdgShellStableSurface(clientASurface, clientASurface);
     QVERIFY(clientAShellSurface);
-    ShellClient *clientA = Test::renderAndWaitForShown(clientASurface, QSize(128, 128), Qt::green);
+    AbstractClient *clientA = Test::renderAndWaitForShown(clientASurface, QSize(128, 128), Qt::green);
     QVERIFY(clientA);
     QVERIFY(clientA->isActive());
     QVERIFY(!clientA->keepBelow());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientA}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientA}));
 
     // Create the second client.
     KWayland::Client::Surface *clientBSurface =
         Test::createSurface(Test::waylandCompositor());
     QVERIFY(clientBSurface);
-    KWayland::Client::ShellSurface *clientBShellSurface =
-        Test::createShellSurface(clientBSurface, clientBSurface);
+    KWayland::Client::XdgShellSurface *clientBShellSurface =
+        Test::createXdgShellStableSurface(clientBSurface, clientBSurface);
     QVERIFY(clientBShellSurface);
-    ShellClient *clientB = Test::renderAndWaitForShown(clientBSurface, QSize(128, 128), Qt::green);
+    AbstractClient *clientB = Test::renderAndWaitForShown(clientBSurface, QSize(128, 128), Qt::green);
     QVERIFY(clientB);
     QVERIFY(clientB->isActive());
     QVERIFY(!clientB->keepBelow());
 
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientA, clientB}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientA, clientB}));
 
     // Set the "keep-below" flag on the client B, it should go below other clients.
     {
@@ -904,7 +901,7 @@ void StackingOrderTest::testKeepBelow()
 
     QVERIFY(clientB->isActive());
     QVERIFY(clientB->keepBelow());
-    QCOMPARE(workspace()->stackingOrder(), (ToplevelList{clientB, clientA}));
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{clientB, clientA}));
 }
 
 WAYLANDTEST_MAIN(StackingOrderTest)

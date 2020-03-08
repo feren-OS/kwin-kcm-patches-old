@@ -40,7 +40,6 @@ namespace KWin
 
 class Workspace;
 class AbstractClient;
-class Client;
 class X11EventFilter;
 namespace TabBox
 {
@@ -94,7 +93,6 @@ public:
 
     QString caption() const override;
     QIcon icon() const override;
-    WId window() const override;
     bool isMinimized() const override;
     int x() const override;
     int y() const override;

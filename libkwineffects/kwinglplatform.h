@@ -103,6 +103,7 @@ enum Driver {
     Driver_VMware,
     Driver_Qualcomm,
     Driver_RadeonSI,
+    Driver_Virgl,
     Driver_Unknown
 };
 
@@ -122,6 +123,7 @@ enum ChipClass {
     VolcanicIslands,        // GL4.5  CL2.0  DX12      SM 6.0      2015
     ArcticIslands,          // GL4.5  CL2.0  DX12      SM 6.0      2016
     Vega,                   // GL4.6  CL2.0  DX12      SM 6.0      2017
+    Navi,                   // GL4.6  CL2.0  DX12.1    SM 6.4      2019
     UnknownRadeon = 999,
 
     // NVIDIA
@@ -288,6 +290,12 @@ public:
      * @since 5.8
      */
     bool isAdreno() const;
+
+    /**
+     * @returns @c true if the "GPU" is a virtio-gpu (Qemu/KVM)
+     * @since 5.18
+     **/
+    bool isVirgl() const;
 
     /**
      * @returns the GL_VERSION string as provided by the driver.

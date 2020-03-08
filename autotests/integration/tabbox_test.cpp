@@ -18,11 +18,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "cursor.h"
 #include "input.h"
 #include "platform.h"
 #include "screens.h"
-#include "shell_client.h"
 #include "tabbox/tabbox.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -52,7 +52,6 @@ private Q_SLOTS:
 
 void TabBoxTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -89,17 +88,17 @@ void TabBoxTest::testCapsLock()
 
     // first create three windows
     QScopedPointer<Surface> surface1(Test::createSurface());
-    QScopedPointer<QObject> shellSurface1(Test::createShellSurface(Test::ShellSurfaceType::WlShell, surface1.data()));
+    QScopedPointer<XdgShellSurface> shellSurface1(Test::createXdgShellStableSurface(surface1.data()));
     auto c1 = Test::renderAndWaitForShown(surface1.data(), QSize(100, 50), Qt::blue);
     QVERIFY(c1);
     QVERIFY(c1->isActive());
     QScopedPointer<Surface> surface2(Test::createSurface());
-    QScopedPointer<QObject> shellSurface2(Test::createShellSurface(Test::ShellSurfaceType::XdgShellV5, surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 50), Qt::red);
     QVERIFY(c2);
     QVERIFY(c2->isActive());
     QScopedPointer<Surface> surface3(Test::createSurface());
-    QScopedPointer<QObject> shellSurface3(Test::createShellSurface(Test::ShellSurfaceType::XdgShellV5, surface3.data()));
+    QScopedPointer<XdgShellSurface> shellSurface3(Test::createXdgShellStableSurface(surface3.data()));
     auto c3 = Test::renderAndWaitForShown(surface3.data(), QSize(100, 50), Qt::red);
     QVERIFY(c3);
     QVERIFY(c3->isActive());
@@ -152,17 +151,17 @@ void TabBoxTest::testMoveForward()
 
     // first create three windows
     QScopedPointer<Surface> surface1(Test::createSurface());
-    QScopedPointer<QObject> shellSurface1(Test::createShellSurface(Test::ShellSurfaceType::WlShell, surface1.data()));
+    QScopedPointer<XdgShellSurface> shellSurface1(Test::createXdgShellStableSurface(surface1.data()));
     auto c1 = Test::renderAndWaitForShown(surface1.data(), QSize(100, 50), Qt::blue);
     QVERIFY(c1);
     QVERIFY(c1->isActive());
     QScopedPointer<Surface> surface2(Test::createSurface());
-    QScopedPointer<QObject> shellSurface2(Test::createShellSurface(Test::ShellSurfaceType::XdgShellV5, surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 50), Qt::red);
     QVERIFY(c2);
     QVERIFY(c2->isActive());
     QScopedPointer<Surface> surface3(Test::createSurface());
-    QScopedPointer<QObject> shellSurface3(Test::createShellSurface(Test::ShellSurfaceType::XdgShellV5, surface3.data()));
+    QScopedPointer<XdgShellSurface> shellSurface3(Test::createXdgShellStableSurface(surface3.data()));
     auto c3 = Test::renderAndWaitForShown(surface3.data(), QSize(100, 50), Qt::red);
     QVERIFY(c3);
     QVERIFY(c3->isActive());
@@ -203,17 +202,17 @@ void TabBoxTest::testMoveBackward()
 
     // first create three windows
     QScopedPointer<Surface> surface1(Test::createSurface());
-    QScopedPointer<QObject> shellSurface1(Test::createShellSurface(Test::ShellSurfaceType::WlShell, surface1.data()));
+    QScopedPointer<XdgShellSurface> shellSurface1(Test::createXdgShellStableSurface(surface1.data()));
     auto c1 = Test::renderAndWaitForShown(surface1.data(), QSize(100, 50), Qt::blue);
     QVERIFY(c1);
     QVERIFY(c1->isActive());
     QScopedPointer<Surface> surface2(Test::createSurface());
-    QScopedPointer<QObject> shellSurface2(Test::createShellSurface(Test::ShellSurfaceType::XdgShellV5, surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 50), Qt::red);
     QVERIFY(c2);
     QVERIFY(c2->isActive());
     QScopedPointer<Surface> surface3(Test::createSurface());
-    QScopedPointer<QObject> shellSurface3(Test::createShellSurface(Test::ShellSurfaceType::XdgShellV5, surface3.data()));
+    QScopedPointer<XdgShellSurface> shellSurface3(Test::createXdgShellStableSurface(surface3.data()));
     auto c3 = Test::renderAndWaitForShown(surface3.data(), QSize(100, 50), Qt::red);
     QVERIFY(c3);
     QVERIFY(c3->isActive());

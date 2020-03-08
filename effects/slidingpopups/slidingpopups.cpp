@@ -3,7 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2009 Marco Martin notmart@gmail.com
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -400,23 +400,25 @@ void SlidingPopupsEffect::setupInternalWindowSlide(EffectWindow *w)
     if (!slideProperty.isValid()) {
         return;
     }
-    AnimationData &animData = m_animationsData[w];
+    Location location;
     switch (slideProperty.value<KWindowEffects::SlideFromLocation>()) {
     case KWindowEffects::BottomEdge:
-        animData.location = Location::Bottom;
+        location = Location::Bottom;
         break;
     case KWindowEffects::TopEdge:
-        animData.location = Location::Top;
+        location = Location::Top;
         break;
     case KWindowEffects::RightEdge:
-        animData.location = Location::Right;
+        location = Location::Right;
         break;
     case KWindowEffects::LeftEdge:
-        animData.location = Location::Left;
+        location = Location::Left;
         break;
     default:
         return;
     }
+    AnimationData &animData = m_animationsData[w];
+    animData.location = location;
     bool intOk = false;
     animData.offset = internal->property("kwin_slide_offset").toInt(&intOk);
     if (!intOk) {
@@ -462,7 +464,7 @@ void SlidingPopupsEffect::slideIn(EffectWindow *w)
     animation.kind = AnimationKind::In;
     animation.timeLine.setDirection(TimeLine::Forward);
     animation.timeLine.setDuration((*dataIt).slideInDuration);
-    animation.timeLine.setEasingCurve(QEasingCurve::InOutSine);
+    animation.timeLine.setEasingCurve(QEasingCurve::OutCubic);
 
     // If the opposite animation (Out) was active and it had shorter duration,
     // at this point, the timeline can end up in the "done" state. Thus, we have
@@ -501,7 +503,8 @@ void SlidingPopupsEffect::slideOut(EffectWindow *w)
     animation.kind = AnimationKind::Out;
     animation.timeLine.setDirection(TimeLine::Backward);
     animation.timeLine.setDuration((*dataIt).slideOutDuration);
-    animation.timeLine.setEasingCurve(QEasingCurve::InOutSine);
+    // this is effectively InCubic because the direction is reversed
+    animation.timeLine.setEasingCurve(QEasingCurve::OutCubic);
 
     // If the opposite animation (In) was active and it had shorter duration,
     // at this point, the timeline can end up in the "done" state. Thus, we have

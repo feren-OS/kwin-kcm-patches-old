@@ -5,7 +5,7 @@
 Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
 Copyright (C) 2009 Lucas Murray <lmurray@undefinedfire.com>
 Copyright (C) 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -82,6 +82,7 @@ class EffectWindow;
 class EffectWindowGroup;
 class EffectFrame;
 class EffectFramePrivate;
+class EffectQuickView;
 class Effect;
 class WindowQuad;
 class GLShader;
@@ -187,7 +188,7 @@ X-KDE-Library=kwin4_effect_cooleffect
 
 #define KWIN_EFFECT_API_MAKE_VERSION( major, minor ) (( major ) << 8 | ( minor ))
 #define KWIN_EFFECT_API_VERSION_MAJOR 0
-#define KWIN_EFFECT_API_VERSION_MINOR 228
+#define KWIN_EFFECT_API_VERSION_MINOR 229
 #define KWIN_EFFECT_API_VERSION KWIN_EFFECT_API_MAKE_VERSION( \
         KWIN_EFFECT_API_VERSION_MAJOR, KWIN_EFFECT_API_VERSION_MINOR )
 
@@ -427,7 +428,7 @@ public:
      * In OpenGL based compositing, the frameworks ensures that the context is current
      * when this method is invoked.
      */
-    virtual void paintScreen(int mask, QRegion region, ScreenPaintData& data);
+    virtual void paintScreen(int mask, const QRegion &region, ScreenPaintData& data);
     /**
      * Called after all the painting has been finished.
      * In this method you can:
@@ -486,7 +487,7 @@ public:
      * In OpenGL based compositing, the frameworks ensures that the context is current
      * when this method is invoked.
      */
-    virtual void paintEffectFrame(EffectFrame* frame, QRegion region, double opacity, double frameOpacity);
+    virtual void paintEffectFrame(EffectFrame* frame, const QRegion &region, double opacity, double frameOpacity);
 
     /**
      * Called on Transparent resizes.
@@ -515,7 +516,7 @@ public:
      * In OpenGL based compositing, the frameworks ensures that the context is current
      * when this method is invoked.
      */
-    virtual void drawWindow(EffectWindow* w, int mask, QRegion region, WindowPaintData& data);
+    virtual void drawWindow(EffectWindow* w, int mask, const QRegion &region, WindowPaintData& data);
 
     /**
      * Define new window quads so that they can be transformed by other effects.
@@ -825,19 +826,26 @@ class KWINEFFECTS_EXPORT EffectsHandler : public QObject
     Q_PROPERTY(QSize virtualScreenSize READ virtualScreenSize NOTIFY virtualScreenSizeChanged)
     Q_PROPERTY(QRect virtualScreenGeometry READ virtualScreenGeometry NOTIFY virtualScreenGeometryChanged)
     Q_PROPERTY(bool hasActiveFullScreenEffect READ hasActiveFullScreenEffect NOTIFY hasActiveFullScreenEffectChanged)
+
+    /**
+     * The status of the session i.e if the user is logging out
+     * @since 5.18
+     */
+    Q_PROPERTY(KWin::SessionState sessionState READ sessionState NOTIFY sessionStateChanged)
+
     friend class Effect;
 public:
     explicit EffectsHandler(CompositingType type);
     ~EffectsHandler() override;
     // for use by effects
     virtual void prePaintScreen(ScreenPrePaintData& data, int time) = 0;
-    virtual void paintScreen(int mask, QRegion region, ScreenPaintData& data) = 0;
+    virtual void paintScreen(int mask, const QRegion &region, ScreenPaintData& data) = 0;
     virtual void postPaintScreen() = 0;
     virtual void prePaintWindow(EffectWindow* w, WindowPrePaintData& data, int time) = 0;
-    virtual void paintWindow(EffectWindow* w, int mask, QRegion region, WindowPaintData& data) = 0;
+    virtual void paintWindow(EffectWindow* w, int mask, const QRegion &region, WindowPaintData& data) = 0;
     virtual void postPaintWindow(EffectWindow* w) = 0;
-    virtual void paintEffectFrame(EffectFrame* frame, QRegion region, double opacity, double frameOpacity) = 0;
-    virtual void drawWindow(EffectWindow* w, int mask, QRegion region, WindowPaintData& data) = 0;
+    virtual void paintEffectFrame(EffectFrame* frame, const QRegion &region, double opacity, double frameOpacity) = 0;
+    virtual void drawWindow(EffectWindow* w, int mask, const QRegion &region, WindowPaintData& data) = 0;
     virtual void buildQuads(EffectWindow* w, WindowQuadList& quadList) = 0;
     virtual QVariant kwinOption(KWinOption kwopt) = 0;
     /**
@@ -1359,6 +1367,18 @@ public:
      */
     virtual bool hasActiveFullScreenEffect() const = 0;
 
+    /**
+     * Render the supplied EffectQuickView onto the scene
+     * It can be called at any point during the scene rendering
+     * @since 5.18
+     */
+    virtual void renderEffectQuickView(EffectQuickView *effectQuickView) const = 0;
+
+    /**
+     * The status of the session i.e if the user is logging out
+     * @since 5.18
+     */
+    virtual SessionState sessionState() const = 0;
 Q_SIGNALS:
     /**
      * Signal emitted when the current desktop changed.
@@ -1499,6 +1519,13 @@ Q_SIGNALS:
      * @since 4.7
      */
     void windowGeometryShapeChanged(KWin::EffectWindow *w, const QRect &old);
+    /**
+     * This signal is emitted when the frame geometry of a window changed.
+     * @param window The window whose geometry changed
+     * @param oldGeometry The previous geometry
+     * @since 5.19
+     */
+    void windowFrameGeometryChanged(KWin::EffectWindow *window, const QRect &oldGeometry);
     /**
      * Signal emitted when the padding of a window changed. (eg. shadow size)
      * @param w The window whose geometry changed
@@ -1790,6 +1817,12 @@ Q_SIGNALS:
      * @since 5.15
      */
     void windowFullScreenChanged(KWin::EffectWindow *w);
+
+    /**
+     * This signal is emitted when the session state was changed
+     * @since 5.18
+     */
+    void sessionStateChanged();
 
 protected:
     QVector< EffectPair > loaded_effects;
@@ -2086,6 +2119,13 @@ class KWINEFFECTS_EXPORT EffectWindow : public QObject
      */
     Q_PROPERTY(bool outline READ isOutline CONSTANT)
 
+    /**
+     * The PID of the application this window belongs to.
+     *
+     * @since 5.18
+     */
+    Q_PROPERTY(bool outline READ isOutline CONSTANT)
+
 public:
     /**  Flags explaining why painting should be disabled  */
     enum {
@@ -2125,7 +2165,7 @@ public:
     virtual bool hasAlpha() const = 0;
 
     bool isOnCurrentActivity() const;
-    Q_SCRIPTABLE bool isOnActivity(QString id) const;
+    Q_SCRIPTABLE bool isOnActivity(const QString &id) const;
     bool isOnAllActivities() const;
     virtual QStringList activities() const = 0;
 
@@ -2159,7 +2199,28 @@ public:
      * MAY BE DISOBEYED BY THE WM! It's only for information, do NOT rely on it at all.
      */
     virtual QSize basicUnit() const = 0;
+    /**
+     * @deprecated Use frameGeometry() instead.
+     */
     virtual QRect geometry() const = 0;
+    /**
+     * Returns the geometry of the window excluding server-side and client-side
+     * drop-shadows.
+     *
+     * @since 5.18
+     */
+    virtual QRect frameGeometry() const = 0;
+    /**
+     * Returns the geometry of the pixmap or buffer attached to this window.
+     *
+     * For X11 clients, this method returns server-side geometry of the Toplevel.
+     *
+     * For Wayland clients, this method returns rectangle that the main surface
+     * occupies on the screen, in global screen coordinates.
+     *
+     * @since 5.18
+     */
+    virtual QRect bufferGeometry() const = 0;
     /**
      * Geometry of the window including decoration and potentially shadows.
      * May be different from geometry() if the window has a shadow.
@@ -2384,6 +2445,11 @@ public:
      * @since 5.16
      */
     virtual bool isOutline() const = 0;
+
+    /**
+     * @since 5.18
+     */
+    virtual pid_t pid() const = 0;
 
     /**
      * Can be used to by effects to store arbitrary data in the EffectWindow.
@@ -3206,7 +3272,7 @@ public:
     /**
      * Register a list of windows for managing.
      */
-    inline void manage(EffectWindowList list) {
+    inline void manage(const EffectWindowList &list) {
         for (int i = 0; i < list.size(); i++)
             manage(list.at(i));
     }
@@ -3360,7 +3426,7 @@ public:
     /**
      * Render the frame.
      */
-    virtual void render(QRegion region = infiniteRegion(), double opacity = 1.0, double frameOpacity = 1.0) = 0;
+    virtual void render(const QRegion &region = infiniteRegion(), double opacity = 1.0, double frameOpacity = 1.0) = 0;
 
     virtual void setPosition(const QPoint& point) = 0;
     /**
@@ -3618,7 +3684,7 @@ public:
     /**
      * Sets new easing curve by providing its type.
      *
-     * @param type Type of the easing curve(e.g. QEasingCurve::InQuad, etc)
+     * @param type Type of the easing curve(e.g. QEasingCurve::InCubic, etc)
      * @see easingCurve
      * @since 5.14
      */

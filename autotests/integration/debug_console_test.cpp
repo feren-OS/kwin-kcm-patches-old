@@ -18,16 +18,17 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
-#include "platform.h"
+#include "abstract_client.h"
 #include "debug_console.h"
+#include "internal_client.h"
+#include "platform.h"
 #include "screens.h"
-#include "shell_client.h"
 #include "wayland_server.h"
+#include "workspace.h"
 #include "xcbutils.h"
 
 #include <KWayland/Client/connection_thread.h>
 #include <KWayland/Client/compositor.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/surface.h>
 
@@ -57,8 +58,8 @@ private Q_SLOTS:
 
 void DebugConsoleTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
-    qRegisterMetaType<KWin::AbstractClient*>();
+    qRegisterMetaType<KWin::AbstractClient *>();
+    qRegisterMetaType<KWin::InternalClient *>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
@@ -296,10 +297,10 @@ void DebugConsoleTest::testX11Unmanaged()
 
 void DebugConsoleTest::testWaylandClient_data()
 {
-    QTest::addColumn<Test::ShellSurfaceType>("type");
+    QTest::addColumn<Test::XdgShellSurfaceType>("type");
 
-    QTest::newRow("wlShell") << Test::ShellSurfaceType::WlShell;
-    QTest::newRow("xdgShellV5") << Test::ShellSurfaceType::XdgShellV5;
+    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
+    QTest::newRow("xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
 }
 
 void DebugConsoleTest::testWaylandClient()
@@ -328,8 +329,8 @@ void DebugConsoleTest::testWaylandClient()
     using namespace KWayland::Client;
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(surface->isValid());
-    QFETCH(Test::ShellSurfaceType, type);
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(type, surface.data()));
+    QFETCH(Test::XdgShellSurfaceType, type);
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
     QVERIFY(!shellSurface.isNull());
     Test::render(surface.data(), QSize(10, 10), Qt::red);
 
@@ -391,7 +392,7 @@ void DebugConsoleTest::testWaylandClient()
     shellSurface.reset();
     Test::flushWaylandConnection();
     qDebug() << rowsRemovedSpy.count();
-    QEXPECT_FAIL("wlShell", "Deleting a ShellSurface does not result in the server removing the ShellClient", Continue);
+    QEXPECT_FAIL("wlShell", "Deleting a ShellSurface does not result in the server removing the XdgShellClient", Continue);
     QVERIFY(rowsRemovedSpy.wait(500));
     surface.reset();
 
@@ -497,8 +498,7 @@ void DebugConsoleTest::testInternalWindow()
     w->hide();
     w.reset();
 
-    QVERIFY(rowsRemovedSpy.wait());
-    QCOMPARE(rowsRemovedSpy.count(), 1);
+    QTRY_COMPARE(rowsRemovedSpy.count(), 1);
     QCOMPARE(rowsRemovedSpy.first().first().value<QModelIndex>(), internalTopLevelIndex);
 }
 
@@ -511,12 +511,12 @@ void DebugConsoleTest::testClosingDebugConsole()
     QSignalSpy destroyedSpy(console, &QObject::destroyed);
     QVERIFY(destroyedSpy.isValid());
 
-    QSignalSpy clientAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
+    QSignalSpy clientAddedSpy(workspace(), &Workspace::internalClientAdded);
     QVERIFY(clientAddedSpy.isValid());
     console->show();
     QCOMPARE(console->windowHandle()->isVisible(), true);
     QTRY_COMPARE(clientAddedSpy.count(), 1);
-    ShellClient *c = clientAddedSpy.first().first().value<ShellClient*>();
+    InternalClient *c = clientAddedSpy.first().first().value<InternalClient *>();
     QVERIFY(c->isInternal());
     QCOMPARE(c->internalWindow(), console->windowHandle());
     QVERIFY(c->isDecorated());

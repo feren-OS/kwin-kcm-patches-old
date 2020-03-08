@@ -27,8 +27,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <kwinconfig.h>
 // kwin
 #include <kwinglobals.h>
-// KDE
-#include <netwm_def.h>
 // Qt
 #include <QLoggingCategory>
 #include <QList>
@@ -43,36 +41,7 @@ Q_DECLARE_LOGGING_CATEGORY(KWIN_VIRTUALKEYBOARD)
 namespace KWin
 {
 
-// window types that are supported as normal windows (i.e. KWin actually manages them)
-const NET::WindowTypes SUPPORTED_MANAGED_WINDOW_TYPES_MASK = NET::NormalMask | NET::DesktopMask | NET::DockMask
-        | NET::ToolbarMask | NET::MenuMask | NET::DialogMask /*| NET::OverrideMask*/ | NET::TopMenuMask
-        | NET::UtilityMask | NET::SplashMask | NET::NotificationMask | NET::OnScreenDisplayMask
-        | NET::CriticalNotificationMask;
-// window types that are supported as unmanaged (mainly for compositing)
-const NET::WindowTypes SUPPORTED_UNMANAGED_WINDOW_TYPES_MASK = NET::NormalMask | NET::DesktopMask | NET::DockMask
-        | NET::ToolbarMask | NET::MenuMask | NET::DialogMask /*| NET::OverrideMask*/ | NET::TopMenuMask
-        | NET::UtilityMask | NET::SplashMask | NET::DropdownMenuMask | NET::PopupMenuMask
-        | NET::TooltipMask | NET::NotificationMask | NET::ComboBoxMask | NET::DNDIconMask | NET::OnScreenDisplayMask
-        | NET::CriticalNotificationMask;
-
 const QPoint invalidPoint(INT_MIN, INT_MIN);
-
-class Toplevel;
-class Client;
-class Unmanaged;
-class Deleted;
-class Group;
-class Options;
-
-typedef QList< Toplevel* > ToplevelList;
-typedef QList< Client* > ClientList;
-typedef QList< const Client* > ConstClientList;
-typedef QList< Unmanaged* > UnmanagedList;
-typedef QList< Deleted* > DeletedList;
-
-typedef QList< Group* > GroupList;
-
-extern Options* options;
 
 enum Layer {
     UnknownLayer = -1,
@@ -165,8 +134,6 @@ void KWIN_EXPORT ungrabXKeyboard();
  * Small helper class which performs grabXServer in the ctor and
  * ungrabXServer in the dtor. Use this class to ensure that grab and
  * ungrab are matched.
- *
- * To simplify usage consider using the macro GRAB_SERVER_DURING_CONTEXT
  */
 class XServerGrabber
 {
@@ -178,8 +145,6 @@ public:
         ungrabXServer();
     }
 };
-
-#define GRAB_SERVER_DURING_CONTEXT XServerGrabber xserverGrabber;
 
 // the docs say it's UrgencyHint, but it's often #defined as XUrgencyHint
 #ifndef UrgencyHint

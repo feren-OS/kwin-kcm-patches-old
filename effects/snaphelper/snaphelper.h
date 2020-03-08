@@ -3,7 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2009 Lucas Murray <lmurray@undefinedfire.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ public:
     void reconfigure(ReconfigureFlags flags) override;
 
     void prePaintScreen(ScreenPrePaintData &data, int time) override;
-    void paintScreen(int mask, QRegion region, ScreenPaintData &data) override;
+    void paintScreen(int mask, const QRegion &region, ScreenPaintData &data) override;
     void postPaintScreen() override;
 
     bool isActive() const override;
@@ -47,7 +47,7 @@ private Q_SLOTS:
     void slotWindowClosed(EffectWindow *w);
     void slotWindowStartUserMovedResized(EffectWindow *w);
     void slotWindowFinishUserMovedResized(EffectWindow *w);
-    void slotWindowGeometryShapeChanged(EffectWindow *w, const QRect &old);
+    void slotWindowFrameGeometryChanged(EffectWindow *w, const QRect &old);
 
 private:
     QRect m_geometry;

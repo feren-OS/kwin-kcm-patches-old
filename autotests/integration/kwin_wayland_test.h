@@ -42,8 +42,6 @@ class PointerConstraints;
 class Seat;
 class ServerSideDecorationManager;
 class ShadowManager;
-class Shell;
-class ShellSurface;
 class ShmPool;
 class SubCompositor;
 class SubSurface;
@@ -60,7 +58,6 @@ class Xwayland;
 }
 
 class AbstractClient;
-class ShellClient;
 
 class WaylandTestApplication : public ApplicationWaylandAbstract
 {
@@ -116,7 +113,6 @@ KWayland::Client::ConnectionThread *waylandConnection();
 KWayland::Client::Compositor *waylandCompositor();
 KWayland::Client::SubCompositor *waylandSubCompositor();
 KWayland::Client::ShadowManager *waylandShadowManager();
-KWayland::Client::Shell *waylandShell();
 KWayland::Client::ShmPool *waylandShmPool();
 KWayland::Client::Seat *waylandSeat();
 KWayland::Client::ServerSideDecorationManager *waylandServerSideDecoration();
@@ -136,9 +132,7 @@ void flushWaylandConnection();
 KWayland::Client::Surface *createSurface(QObject *parent = nullptr);
 KWayland::Client::SubSurface *createSubSurface(KWayland::Client::Surface *surface,
                                                KWayland::Client::Surface *parentSurface, QObject *parent = nullptr);
-enum class ShellSurfaceType {
-    WlShell,
-    XdgShellV5,
+enum class XdgShellSurfaceType {
     XdgShellV6,
     XdgShellStable
 };
@@ -148,22 +142,11 @@ enum class CreationSetup {
     CreateAndConfigure, /// commit and wait for the configure event, making this surface ready to commit buffers
 };
 
-/**
- * Creates either a ShellSurface * or XdgShellSurface * as defined by @arg type
- * For XDG top levels this method will block for a configure event, make this surface ready to commit buffers
- */
-QObject *createShellSurface(ShellSurfaceType type, KWayland::Client::Surface *surface, QObject *parent = nullptr);
-
-KWayland::Client::XdgShellSurface *createXdgShellSurface(ShellSurfaceType type,
+KWayland::Client::XdgShellSurface *createXdgShellSurface(XdgShellSurfaceType type,
                                                          KWayland::Client::Surface *surface,
                                                          QObject *parent = nullptr,
                                                          CreationSetup creationSetup = CreationSetup::CreateAndConfigure);
 
-KWayland::Client::ShellSurface *createShellSurface(KWayland::Client::Surface *surface,
-                                                   QObject *parent = nullptr);
-KWayland::Client::XdgShellSurface *createXdgShellV5Surface(KWayland::Client::Surface *surface,
-                                                           QObject *parent = nullptr,
-                                                           CreationSetup = CreationSetup::CreateAndConfigure);
 KWayland::Client::XdgShellSurface *createXdgShellV6Surface(KWayland::Client::Surface *surface,
                                                            QObject *parent = nullptr,
                                                            CreationSetup = CreationSetup::CreateAndConfigure);
@@ -197,15 +180,15 @@ void render(KWayland::Client::Surface *surface, const QSize &size, const QColor 
 void render(KWayland::Client::Surface *surface, const QImage &img);
 
 /**
- * Waits till a new ShellClient is shown and returns the created ShellClient.
- * If no ShellClient gets shown during @p timeout @c null is returned.
+ * Waits till a new AbstractClient is shown and returns the created AbstractClient.
+ * If no AbstractClient gets shown during @p timeout @c null is returned.
  */
-ShellClient *waitForWaylandWindowShown(int timeout = 5000);
+AbstractClient *waitForWaylandWindowShown(int timeout = 5000);
 
 /**
  * Combination of @link{render} and @link{waitForWaylandWindowShown}.
  */
-ShellClient *renderAndWaitForShown(KWayland::Client::Surface *surface, const QSize &size, const QColor &color, const QImage::Format &format = QImage::Format_ARGB32, int timeout = 5000);
+AbstractClient *renderAndWaitForShown(KWayland::Client::Surface *surface, const QSize &size, const QColor &color, const QImage::Format &format = QImage::Format_ARGB32, int timeout = 5000);
 
 /**
  * Waits for the @p client to be destroyed.
@@ -228,7 +211,7 @@ bool unlockScreen();
 }
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(KWin::Test::AdditionalWaylandInterfaces)
-Q_DECLARE_METATYPE(KWin::Test::ShellSurfaceType)
+Q_DECLARE_METATYPE(KWin::Test::XdgShellSurfaceType)
 
 #define WAYLANDTEST_MAIN_HELPER(TestObject, DPI, OperationMode) \
 int main(int argc, char *argv[]) \

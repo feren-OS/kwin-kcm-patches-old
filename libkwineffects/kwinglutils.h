@@ -52,7 +52,7 @@ class GLVertexBufferPrivate;
 //  well as checking for GL version and extensions
 //  Note that GL context has to be created by the time this function is called
 typedef void (*resolveFuncPtr)();
-void KWINGLUTILS_EXPORT initGL(std::function<resolveFuncPtr(const char*)> resolveFunction);
+void KWINGLUTILS_EXPORT initGL(const std::function<resolveFuncPtr(const char*)> &resolveFunction);
 // Cleans up all resources hold by the GL Context
 void KWINGLUTILS_EXPORT cleanupGL();
 
@@ -129,6 +129,7 @@ public:
 
     enum Vec4Uniform {
         ModulationConstant,
+        TextureClamp,
         Vec4UniformCount
     };
 
@@ -186,6 +187,7 @@ enum class ShaderTrait {
     UniformColor     = (1 << 1),
     Modulate         = (1 << 2),
     AdjustSaturation = (1 << 3),
+    ClampTexture     = (1 << 4),
 };
 
 Q_DECLARE_FLAGS(ShaderTraits, ShaderTrait)
@@ -544,6 +546,15 @@ public:
         return s_virtualScreenScale;
     }
 
+    /**
+     * The framebuffer of KWin's OpenGL window or other object currently being rendered to
+     *
+     * @since 5.18
+     */
+    static void setKWinFramebuffer(GLuint fb) {
+        s_kwinFramebuffer = fb;
+    }
+
 
 protected:
     void initFBO();
@@ -559,6 +570,7 @@ private:
     static QRect s_virtualScreenGeometry;
     static qreal s_virtualScreenScale;
     static GLint s_virtualScreenViewport[4];
+    static GLuint s_kwinFramebuffer;
 
     GLTexture mTexture;
     bool mValid;

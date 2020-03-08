@@ -20,13 +20,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "kwin_wayland_test.h"
 #include "platform.h"
 #include "abstract_client.h"
-#include "client.h"
+#include "x11client.h"
 #include "composite.h"
 #include "deleted.h"
 #include "effects.h"
 #include "effectloader.h"
 #include "screens.h"
-#include "shell_client.h"
 #include "wayland_server.h"
 #include "workspace.h"
 #include "scripting/scriptedeffect.h"
@@ -36,7 +35,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/connection_thread.h>
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/shm_pool.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
 
 namespace KWin
@@ -57,7 +55,6 @@ private Q_SLOTS:
 void DontCrashCancelAnimationFromAnimationEndedTest::initTestCase()
 {
     qRegisterMetaType<KWin::Deleted*>();
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
@@ -99,7 +96,7 @@ void DontCrashCancelAnimationFromAnimationEndedTest::testScript()
     // create a window
     Surface *surface = Test::createSurface(Test::waylandCompositor());
     QVERIFY(surface);
-    ShellSurface *shellSurface = Test::createShellSurface(surface, surface);
+    XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
     // let's render
     auto c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);

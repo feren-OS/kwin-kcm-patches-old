@@ -18,7 +18,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
-#include "shell_client.h"
+#include "abstract_client.h"
 #include "screenlockerwatcher.h"
 #include "wayland_server.h"
 
@@ -33,7 +33,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/seat.h>
 #include <KWayland/Client/server_decoration.h>
 #include <KWayland/Client/shadow.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/output.h>
 #include <KWayland/Client/subcompositor.h>
@@ -68,8 +67,6 @@ static struct {
     SubCompositor *subCompositor = nullptr;
     ServerSideDecorationManager *decoration = nullptr;
     ShadowManager *shadowManager = nullptr;
-    Shell *shell = nullptr;
-    XdgShell *xdgShellV5 = nullptr;
     XdgShell *xdgShellV6 = nullptr;
     XdgShell *xdgShellStable = nullptr;
     ShmPool *shm = nullptr;
@@ -155,14 +152,6 @@ bool setupWaylandConnection(AdditionalWaylandInterfaces flags)
     }
     s_waylandConnection.shm = registry->createShmPool(registry->interface(Registry::Interface::Shm).name, registry->interface(Registry::Interface::Shm).version);
     if (!s_waylandConnection.shm->isValid()) {
-        return false;
-    }
-    s_waylandConnection.shell = registry->createShell(registry->interface(Registry::Interface::Shell).name, registry->interface(Registry::Interface::Shell).version);
-    if (!s_waylandConnection.shell->isValid()) {
-        return false;
-    }
-    s_waylandConnection.xdgShellV5 = registry->createXdgShell(registry->interface(Registry::Interface::XdgShellUnstableV5).name, registry->interface(Registry::Interface::XdgShellUnstableV5).version);
-    if (!s_waylandConnection.xdgShellV5->isValid()) {
         return false;
     }
     s_waylandConnection.xdgShellV6 = registry->createXdgShell(registry->interface(Registry::Interface::XdgShellUnstableV6).name, registry->interface(Registry::Interface::XdgShellUnstableV6).version);
@@ -255,14 +244,10 @@ void destroyWaylandConnection()
     s_waylandConnection.seat = nullptr;
     delete s_waylandConnection.pointerConstraints;
     s_waylandConnection.pointerConstraints = nullptr;
-    delete s_waylandConnection.xdgShellV5;
-    s_waylandConnection.xdgShellV5 = nullptr;
     delete s_waylandConnection.xdgShellV6;
     s_waylandConnection.xdgShellV6 = nullptr;
     delete s_waylandConnection.xdgShellStable;
     s_waylandConnection.xdgShellStable = nullptr;
-    delete s_waylandConnection.shell;
-    s_waylandConnection.shell = nullptr;
     delete s_waylandConnection.shadowManager;
     s_waylandConnection.shadowManager = nullptr;
     delete s_waylandConnection.idleInhibit;
@@ -309,11 +294,6 @@ SubCompositor *waylandSubCompositor()
 ShadowManager *waylandShadowManager()
 {
     return s_waylandConnection.shadowManager;
-}
-
-Shell *waylandShell()
-{
-    return s_waylandConnection.shell;
 }
 
 ShmPool *waylandShmPool()
@@ -412,7 +392,7 @@ void render(Surface *surface, const QImage &img)
     surface->commit(Surface::CommitFlag::None);
 }
 
-ShellClient *waitForWaylandWindowShown(int timeout)
+AbstractClient *waitForWaylandWindowShown(int timeout)
 {
     QSignalSpy clientAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
     if (!clientAddedSpy.isValid()) {
@@ -421,10 +401,10 @@ ShellClient *waitForWaylandWindowShown(int timeout)
     if (!clientAddedSpy.wait(timeout)) {
         return nullptr;
     }
-    return clientAddedSpy.first().first().value<ShellClient*>();
+    return clientAddedSpy.first().first().value<AbstractClient *>();
 }
 
-ShellClient *renderAndWaitForShown(Surface *surface, const QSize &size, const QColor &color, const QImage::Format &format, int timeout)
+AbstractClient *renderAndWaitForShown(Surface *surface, const QSize &size, const QColor &color, const QImage::Format &format, int timeout)
 {
     QSignalSpy clientAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
     if (!clientAddedSpy.isValid()) {
@@ -435,7 +415,7 @@ ShellClient *renderAndWaitForShown(Surface *surface, const QSize &size, const QC
     if (!clientAddedSpy.wait(timeout)) {
         return nullptr;
     }
-    return clientAddedSpy.first().first().value<ShellClient*>();
+    return clientAddedSpy.first().first().value<AbstractClient *>();
 }
 
 void flushWaylandConnection()
@@ -467,35 +447,6 @@ SubSurface *createSubSurface(Surface *surface, Surface *parentSurface, QObject *
     if (!s->isValid()) {
         delete s;
         return nullptr;
-    }
-    return s;
-}
-
-ShellSurface *createShellSurface(Surface *surface, QObject *parent)
-{
-    if (!s_waylandConnection.shell) {
-        return nullptr;
-    }
-    auto s = s_waylandConnection.shell->createSurface(surface, parent);
-    if (!s->isValid()) {
-        delete s;
-        return nullptr;
-    }
-    return s;
-}
-
-XdgShellSurface *createXdgShellV5Surface(Surface *surface, QObject *parent, CreationSetup creationSetup)
-{
-    if (!s_waylandConnection.xdgShellV5) {
-        return nullptr;
-    }
-    auto s = s_waylandConnection.xdgShellV5->createSurface(surface, parent);
-    if (!s->isValid()) {
-        delete s;
-        return nullptr;
-    }
-    if (creationSetup == CreationSetup::CreateAndConfigure) {
-        initXdgShellSurface(surface, s);
     }
     return s;
 }
@@ -568,32 +519,12 @@ void initXdgShellPopup(KWayland::Client::Surface *surface, KWayland::Client::Xdg
     shellPopup->ackConfigure(configureRequestedSpy.last()[1].toInt());
 }
 
-
-QObject *createShellSurface(ShellSurfaceType type, KWayland::Client::Surface *surface, QObject *parent)
+KWayland::Client::XdgShellSurface *createXdgShellSurface(XdgShellSurfaceType type, KWayland::Client::Surface *surface, QObject *parent, CreationSetup creationSetup)
 {
     switch (type) {
-    case ShellSurfaceType::WlShell:
-        return createShellSurface(surface, parent);
-    case ShellSurfaceType::XdgShellV5:
-        return createXdgShellV5Surface(surface, parent, CreationSetup::CreateAndConfigure);
-    case ShellSurfaceType::XdgShellV6:
-        return createXdgShellV6Surface(surface, parent, CreationSetup::CreateAndConfigure);
-    case ShellSurfaceType::XdgShellStable:
-        return createXdgShellStableSurface(surface, parent, CreationSetup::CreateAndConfigure);
-    default:
-        Q_UNREACHABLE();
-        return nullptr;
-    }
-}
-
-KWayland::Client::XdgShellSurface *createXdgShellSurface(ShellSurfaceType type, KWayland::Client::Surface *surface, QObject *parent, CreationSetup creationSetup)
-{
-    switch (type) {
-    case ShellSurfaceType::XdgShellV5:
-        return createXdgShellV5Surface(surface, parent, creationSetup);
-    case ShellSurfaceType::XdgShellV6:
+    case XdgShellSurfaceType::XdgShellV6:
         return createXdgShellV6Surface(surface, parent, creationSetup);
-    case ShellSurfaceType::XdgShellStable:
+    case XdgShellSurfaceType::XdgShellStable:
         return createXdgShellStableSurface(surface, parent, creationSetup);
     default:
         return nullptr;

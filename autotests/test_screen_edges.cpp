@@ -28,9 +28,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "../utils.h"
 #include "../virtualdesktops.h"
 #include "../xcbutils.h"
-#include "mock_client.h"
 #include "mock_screens.h"
 #include "mock_workspace.h"
+#include "mock_x11client.h"
 #include "testutils.h"
 // Frameworks
 #include <KConfigGroup>
@@ -395,7 +395,7 @@ void TestScreenEdges::testCreatingInitialEdges()
     }
 
     // let's start a move of window.
-    Client client(workspace());
+    X11Client client(workspace());
     workspace()->setMoveResizeClient(&client);
     for (int i = 0; i < 8; ++i) {
         auto e = edges.at(i);
@@ -468,7 +468,7 @@ void TestScreenEdges::testCallback()
     event.time = QDateTime::currentMSecsSinceEpoch();
     setPos(QPoint(0, 50));
     auto isEntered = [s] (xcb_enter_notify_event_t *event) {
-        return s->handleEnterNotifiy(event->event, QPoint(event->root_x, event->root_y), QDateTime::fromMSecsSinceEpoch(event->time));
+        return s->handleEnterNotifiy(event->event, QPoint(event->root_x, event->root_y), QDateTime::fromMSecsSinceEpoch(event->time, Qt::UTC));
     };
     QVERIFY(isEntered(&event));
     // doesn't trigger as the edge was not triggered yet
@@ -574,12 +574,12 @@ void TestScreenEdges::testCallbackWithCheck()
     s->reserve(ElectricLeft, &callback, "callback");
 
     // check activating a different edge doesn't do anything
-    s->check(QPoint(50, 0), QDateTime::currentDateTime(), true);
+    s->check(QPoint(50, 0), QDateTime::currentDateTimeUtc(), true);
     QVERIFY(spy.isEmpty());
 
     // try a direct activate without pushback
     Cursor::setPos(0, 50);
-    s->check(QPoint(0, 50), QDateTime::currentDateTime(), true);
+    s->check(QPoint(0, 50), QDateTime::currentDateTimeUtc(), true);
     QCOMPARE(spy.count(), 1);
     QEXPECT_FAIL("", "Argument says force no pushback, but it gets pushed back. Needs investigation", Continue);
     QCOMPARE(Cursor::pos(), QPoint(0, 50));
@@ -587,14 +587,14 @@ void TestScreenEdges::testCallbackWithCheck()
     // use a different edge, this time with pushback
     s->reserve(KWin::ElectricRight, &callback, "callback");
     Cursor::setPos(99, 50);
-    s->check(QPoint(99, 50), QDateTime::currentDateTime());
+    s->check(QPoint(99, 50), QDateTime::currentDateTimeUtc());
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.last().first().value<ElectricBorder>(), ElectricLeft);
     QCOMPARE(Cursor::pos(), QPoint(98, 50));
     // and trigger it again
     QTest::qWait(160);
     Cursor::setPos(99, 50);
-    s->check(QPoint(99, 50), QDateTime::currentDateTime());
+    s->check(QPoint(99, 50), QDateTime::currentDateTimeUtc());
     QCOMPARE(spy.count(), 2);
     QCOMPARE(spy.last().first().value<ElectricBorder>(), ElectricRight);
     QCOMPARE(Cursor::pos(), QPoint(98, 50));
@@ -658,7 +658,7 @@ void TestScreenEdges::testPushBack()
 
     // do the same without the event, but the check method
     Cursor::setPos(trigger);
-    s->check(trigger, QDateTime::currentDateTime());
+    s->check(trigger, QDateTime::currentDateTimeUtc());
     QVERIFY(spy.isEmpty());
     QTEST(Cursor::pos(), "expected");
 }
@@ -667,7 +667,7 @@ void TestScreenEdges::testFullScreenBlocking()
 {
     using namespace KWin;
     MockWorkspace ws;
-    Client client(&ws);
+    X11Client client(&ws);
     auto config = KSharedConfig::openConfig(QString(), KConfig::SimpleConfig);
     config->group("Windows").writeEntry("ElectricBorderPushbackPixels", 1);
     config->sync();
@@ -706,7 +706,7 @@ void TestScreenEdges::testFullScreenBlocking()
     QVERIFY(spy.isEmpty());
     QCOMPARE(Cursor::pos(), QPoint(1, 50));
 
-    client.setGeometry(screens()->geometry());
+    client.setFrameGeometry(screens()->geometry());
     client.setActive(true);
     client.setFullScreen(true);
     ws.setActiveClient(&client);
@@ -739,7 +739,7 @@ void TestScreenEdges::testFullScreenBlocking()
     // let's make the client fullscreen again, but with a geometry not intersecting the left edge
     QTest::qWait(351);
     client.setFullScreen(true);
-    client.setGeometry(client.geometry().translated(10, 0));
+    client.setFrameGeometry(client.frameGeometry().translated(10, 0));
     emit s->checkBlocking();
     spy.clear();
     Cursor::setPos(0, 50);
@@ -750,7 +750,7 @@ void TestScreenEdges::testFullScreenBlocking()
     QCOMPARE(Cursor::pos(), QPoint(1, 50));
 
     // just to be sure, let's set geometry back
-    client.setGeometry(screens()->geometry());
+    client.setFrameGeometry(screens()->geometry());
     emit s->checkBlocking();
     Cursor::setPos(0, 50);
     QVERIFY(isEntered(&event));
@@ -781,8 +781,8 @@ void TestScreenEdges::testFullScreenBlocking()
 void TestScreenEdges::testClientEdge()
 {
     using namespace KWin;
-    Client client(workspace());
-    client.setGeometry(QRect(10, 50, 10, 50));
+    X11Client client(workspace());
+    client.setFrameGeometry(QRect(10, 50, 10, 50));
     auto s = ScreenEdges::self();
     s->init();
 
@@ -796,7 +796,7 @@ void TestScreenEdges::testClientEdge()
 
     //remove old reserves and resize to be in the middle of the screen
     s->reserve(&client, KWin::ElectricNone);
-    client.setGeometry(QRect(2, 2, 20, 20));
+    client.setFrameGeometry(QRect(2, 2, 20, 20));
 
     // for none of the edges it should be able to be set
     for (int i = 0; i < ELECTRIC_COUNT; ++i) {
@@ -806,7 +806,7 @@ void TestScreenEdges::testClientEdge()
     }
 
     // now let's try to set it and activate it
-    client.setGeometry(screens()->geometry());
+    client.setFrameGeometry(screens()->geometry());
     client.setHiddenInternal(true);
     s->reserve(&client, KWin::ElectricLeft);
     QCOMPARE(client.isHiddenInternal(), true);
@@ -863,7 +863,7 @@ void TestScreenEdges::testClientEdge()
     s->reserve(&client, KWin::ElectricTop);
     QCOMPARE(client.isHiddenInternal(), true);
     Cursor::setPos(50, 0);
-    s->check(QPoint(50, 0), QDateTime::currentDateTime());
+    s->check(QPoint(50, 0), QDateTime::currentDateTimeUtc());
     QCOMPARE(client.isHiddenInternal(), false);
     QCOMPARE(Cursor::pos(), QPoint(50, 1));
 
@@ -872,12 +872,12 @@ void TestScreenEdges::testClientEdge()
     // check on previous edge again, should fail
     client.setHiddenInternal(true);
     Cursor::setPos(50, 0);
-    s->check(QPoint(50, 0), QDateTime::currentDateTime());
+    s->check(QPoint(50, 0), QDateTime::currentDateTimeUtc());
     QCOMPARE(client.isHiddenInternal(), true);
     QCOMPARE(Cursor::pos(), QPoint(50, 0));
 
     // set to windows can cover
-    client.setGeometry(screens()->geometry());
+    client.setFrameGeometry(screens()->geometry());
     client.setHiddenInternal(false);
     client.setKeepBelow(true);
     s->reserve(&client, KWin::ElectricLeft);
@@ -960,12 +960,12 @@ void TestScreenEdges::testTouchEdge()
     event.time = QDateTime::currentMSecsSinceEpoch();
     setPos(QPoint(0, 50));
     auto isEntered = [s] (xcb_enter_notify_event_t *event) {
-        return s->handleEnterNotifiy(event->event, QPoint(event->root_x, event->root_y), QDateTime::fromMSecsSinceEpoch(event->time));
+        return s->handleEnterNotifiy(event->event, QPoint(event->root_x, event->root_y), QDateTime::fromMSecsSinceEpoch(event->time, Qt::UTC));
     };
     QCOMPARE(isEntered(&event), false);
     QVERIFY(approachingSpy.isEmpty());
     // let's also verify the check
-    s->check(QPoint(0, 50), QDateTime::currentDateTime(), false);
+    s->check(QPoint(0, 50), QDateTime::currentDateTimeUtc(), false);
     QVERIFY(approachingSpy.isEmpty());
 
     s->gestureRecognizer()->startSwipeGesture(QPoint(0, 50));

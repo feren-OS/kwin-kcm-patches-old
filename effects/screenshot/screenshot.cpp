@@ -156,7 +156,7 @@ static xcb_pixmap_t xpixmapFromImage(const QImage &image)
     return pixmap;
 }
 
-void ScreenShotEffect::paintScreen(int mask, QRegion region, ScreenPaintData &data)
+void ScreenShotEffect::paintScreen(int mask, const QRegion &region, ScreenPaintData &data)
 {
     m_cachedOutputGeometry = data.outputGeometry();
     effects->paintScreen(mask, region, data);
@@ -655,7 +655,7 @@ void ScreenShotEffect::convertFromGLImage(QImage &img, int w, int h)
 {
     // from QtOpenGL/qgl.cpp
     // Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
-    // see http://qt.gitorious.org/qt/qt/blobs/master/src/opengl/qgl.cpp
+    // see https://github.com/qt/qtbase/blob/dev/src/opengl/qgl.cpp
     if (QSysInfo::ByteOrder == QSysInfo::BigEndian) {
         // OpenGL gives RGBA; Qt wants ARGB
         uint *p = (uint*)img.bits();

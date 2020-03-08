@@ -36,7 +36,9 @@ public:
     explicit Unmanaged();
     bool windowEvent(xcb_generic_event_t *e);
     bool track(xcb_window_t w);
+    bool hasScheduledRelease() const;
     static void deleteUnmanaged(Unmanaged* c);
+    QRect bufferGeometry() const override;
     int desktop() const override;
     QStringList activities() const override;
     QVector<VirtualDesktop *> desktops() const override;
@@ -62,6 +64,7 @@ private:
     void configureNotifyEvent(xcb_configure_notify_event_t *e);
     QWindow *findInternalWindow() const;
     bool m_outline = false;
+    bool m_scheduledRelease = false;
 };
 
 } // namespace

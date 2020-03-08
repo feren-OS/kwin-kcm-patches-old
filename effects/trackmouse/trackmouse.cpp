@@ -4,7 +4,7 @@
 
 Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
 Copyright (C) 2010 Jorge Mata <matamax123@gmail.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -83,7 +83,7 @@ TrackMouseEffect::~TrackMouseEffect()
 
 void TrackMouseEffect::reconfigure(ReconfigureFlags)
 {
-    m_modifiers = nullptr;
+    m_modifiers = Qt::KeyboardModifiers();
     TrackMouseConfig::self()->read();
     if (TrackMouseConfig::shift())
         m_modifiers |= Qt::ShiftModifier;
@@ -115,7 +115,7 @@ void TrackMouseEffect::prePaintScreen(ScreenPrePaintData& data, int time)
     effects->prePaintScreen(data, time);
 }
 
-void TrackMouseEffect::paintScreen(int mask, QRegion region, ScreenPaintData& data)
+void TrackMouseEffect::paintScreen(int mask, const QRegion &region, ScreenPaintData& data)
 {
     effects->paintScreen(mask, region, data);   // paint normal screen
 

@@ -27,9 +27,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "activities.h"
 #endif
 #include "deleted.h"
-#include "client.h"
+#include "x11client.h"
 #include "cursor.h"
 #include "group.h"
+#include "internal_client.h"
 #include "osd.h"
 #include "pointer_input.h"
 #include "unmanaged.h"
@@ -45,16 +46,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "window_property_notify_x11_filter.h"
 #include "workspace.h"
 #include "kwinglutils.h"
+#include "kwineffectquickview.h"
 
 #include <QDebug>
-#include <QDesktopWidget>
 
 #include <Plasma/Theme>
 
 #include "composite.h"
 #include "xcbutils.h"
 #include "platform.h"
-#include "shell_client.h"
+#include "xdgshellclient.h"
 #include "wayland_server.h"
 
 #include "decorations/decorationbridge.h"
@@ -165,7 +166,7 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
         }
     );
     connect(ws, &Workspace::clientAdded, this,
-        [this](Client *c) {
+        [this](X11Client *c) {
             if (c->readyForPainting())
                 slotClientShown(c);
             else
@@ -176,6 +177,12 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
         [this](Unmanaged *u) {
             // it's never initially ready but has synthetic 50ms delay
             connect(u, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotUnmanagedShown);
+        }
+    );
+    connect(ws, &Workspace::internalClientAdded, this,
+        [this](InternalClient *client) {
+            setupAbstractClientConnections(client);
+            emit windowAdded(client->effectWindow());
         }
     );
     connect(ws, &Workspace::clientActivated, this,
@@ -189,6 +196,8 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
             elevated_windows.removeAll(d->effectWindow());
         }
     );
+    connect(ws->sessionManager(), &SessionManager::stateChanged, this,
+            &KWin::EffectsHandler::sessionStateChanged);
     connect(vds, &VirtualDesktopManager::countChanged, this, &EffectsHandler::numberDesktopsChanged);
     connect(Cursor::self(), &Cursor::mouseChanged, this, &EffectsHandler::mouseChanged);
     connect(screens(), &Screens::countChanged,    this, &EffectsHandler::numberScreensChanged);
@@ -239,27 +248,28 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
     }
 
     // connect all clients
-    for (Client *c : ws->clientList()) {
+    for (X11Client *c : ws->clientList()) {
         setupClientConnections(c);
     }
     for (Unmanaged *u : ws->unmanagedList()) {
         setupUnmanagedConnections(u);
     }
+    for (InternalClient *client : ws->internalClients()) {
+        setupAbstractClientConnections(client);
+    }
     if (auto w = waylandServer()) {
-        connect(w, &WaylandServer::shellClientAdded, this,
-            [this](ShellClient *c) {
-                if (c->readyForPainting())
-                    slotShellClientShown(c);
-                else
-                    connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotShellClientShown);
-            }
-        );
+        connect(w, &WaylandServer::shellClientAdded, this, [this](AbstractClient *c) {
+            if (c->readyForPainting())
+                slotWaylandClientShown(c);
+            else
+                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotWaylandClientShown);
+        });
         const auto clients = waylandServer()->clients();
-        for (ShellClient *c : clients) {
+        for (AbstractClient *c : clients) {
             if (c->readyForPainting()) {
                 setupAbstractClientConnections(c);
             } else {
-                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotShellClientShown);
+                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotWaylandClientShown);
             }
         }
     }
@@ -322,6 +332,7 @@ void EffectsHandlerImpl::setupAbstractClientConnections(AbstractClient* c)
     );
     connect(c, &AbstractClient::modalChanged,         this, &EffectsHandlerImpl::slotClientModalityChanged);
     connect(c, &AbstractClient::geometryShapeChanged, this, &EffectsHandlerImpl::slotGeometryShapeChanged);
+    connect(c, &AbstractClient::frameGeometryChanged, this, &EffectsHandlerImpl::slotFrameGeometryChanged);
     connect(c, &AbstractClient::damaged,              this, &EffectsHandlerImpl::slotWindowDamaged);
     connect(c, &AbstractClient::unresponsiveChanged, this,
         [this, c](bool unresponsive) {
@@ -357,10 +368,10 @@ void EffectsHandlerImpl::setupAbstractClientConnections(AbstractClient* c)
     );
 }
 
-void EffectsHandlerImpl::setupClientConnections(Client* c)
+void EffectsHandlerImpl::setupClientConnections(X11Client *c)
 {
     setupAbstractClientConnections(c);
-    connect(c, &Client::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
+    connect(c, &X11Client::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
 }
 
 void EffectsHandlerImpl::setupUnmanagedConnections(Unmanaged* u)
@@ -368,6 +379,7 @@ void EffectsHandlerImpl::setupUnmanagedConnections(Unmanaged* u)
     connect(u, &Unmanaged::windowClosed,         this, &EffectsHandlerImpl::slotWindowClosed);
     connect(u, &Unmanaged::opacityChanged,       this, &EffectsHandlerImpl::slotOpacityChanged);
     connect(u, &Unmanaged::geometryShapeChanged, this, &EffectsHandlerImpl::slotGeometryShapeChanged);
+    connect(u, &Unmanaged::frameGeometryChanged, this, &EffectsHandlerImpl::slotFrameGeometryChanged);
     connect(u, &Unmanaged::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
     connect(u, &Unmanaged::damaged,              this, &EffectsHandlerImpl::slotWindowDamaged);
 }
@@ -387,7 +399,7 @@ void EffectsHandlerImpl::prePaintScreen(ScreenPrePaintData& data, int time)
     // no special final code
 }
 
-void EffectsHandlerImpl::paintScreen(int mask, QRegion region, ScreenPaintData& data)
+void EffectsHandlerImpl::paintScreen(int mask, const QRegion &region, ScreenPaintData& data)
 {
     if (m_currentPaintScreenIterator != m_activeEffects.constEnd()) {
         (*m_currentPaintScreenIterator++)->paintScreen(mask, region, data);
@@ -430,7 +442,7 @@ void EffectsHandlerImpl::prePaintWindow(EffectWindow* w, WindowPrePaintData& dat
     // no special final code
 }
 
-void EffectsHandlerImpl::paintWindow(EffectWindow* w, int mask, QRegion region, WindowPaintData& data)
+void EffectsHandlerImpl::paintWindow(EffectWindow* w, int mask, const QRegion &region, WindowPaintData& data)
 {
     if (m_currentPaintWindowIterator != m_activeEffects.constEnd()) {
         (*m_currentPaintWindowIterator++)->paintWindow(w, mask, region, data);
@@ -439,7 +451,7 @@ void EffectsHandlerImpl::paintWindow(EffectWindow* w, int mask, QRegion region, 
         m_scene->finalPaintWindow(static_cast<EffectWindowImpl*>(w), mask, region, data);
 }
 
-void EffectsHandlerImpl::paintEffectFrame(EffectFrame* frame, QRegion region, double opacity, double frameOpacity)
+void EffectsHandlerImpl::paintEffectFrame(EffectFrame* frame, const QRegion &region, double opacity, double frameOpacity)
 {
     if (m_currentPaintEffectFrameIterator != m_activeEffects.constEnd()) {
         (*m_currentPaintEffectFrameIterator++)->paintEffectFrame(frame, region, opacity, frameOpacity);
@@ -467,7 +479,7 @@ Effect *EffectsHandlerImpl::provides(Effect::Feature ef)
     return nullptr;
 }
 
-void EffectsHandlerImpl::drawWindow(EffectWindow* w, int mask, QRegion region, WindowPaintData& data)
+void EffectsHandlerImpl::drawWindow(EffectWindow* w, int mask, const QRegion &region, WindowPaintData& data)
 {
     if (m_currentDrawWindowIterator != m_activeEffects.constEnd()) {
         (*m_currentDrawWindowIterator++)->drawWindow(w, mask, region, data);
@@ -557,18 +569,18 @@ void EffectsHandlerImpl::slotOpacityChanged(Toplevel *t, qreal oldOpacity)
 
 void EffectsHandlerImpl::slotClientShown(KWin::Toplevel *t)
 {
-    Q_ASSERT(qobject_cast<Client *>(t));
-    Client *c = static_cast<Client*>(t);
+    Q_ASSERT(qobject_cast<X11Client *>(t));
+    X11Client *c = static_cast<X11Client *>(t);
     disconnect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotClientShown);
     setupClientConnections(c);
     emit windowAdded(c->effectWindow());
 }
 
-void EffectsHandlerImpl::slotShellClientShown(Toplevel *t)
+void EffectsHandlerImpl::slotWaylandClientShown(Toplevel *toplevel)
 {
-    ShellClient *c = static_cast<ShellClient*>(t);
-    setupAbstractClientConnections(c);
-    emit windowAdded(t->effectWindow());
+    AbstractClient *client = static_cast<AbstractClient *>(toplevel);
+    setupAbstractClientConnections(client);
+    emit windowAdded(toplevel->effectWindow());
 }
 
 void EffectsHandlerImpl::slotUnmanagedShown(KWin::Toplevel *t)
@@ -589,7 +601,7 @@ void EffectsHandlerImpl::slotWindowClosed(KWin::Toplevel *c, KWin::Deleted *d)
 
 void EffectsHandlerImpl::slotClientModalityChanged()
 {
-    emit windowModalityChanged(static_cast<Client*>(sender())->effectWindow());
+    emit windowModalityChanged(static_cast<X11Client *>(sender())->effectWindow());
 }
 
 void EffectsHandlerImpl::slotCurrentTabAboutToChange(EffectWindow *from, EffectWindow *to)
@@ -623,6 +635,14 @@ void EffectsHandlerImpl::slotGeometryShapeChanged(Toplevel* t, const QRect& old)
     if (t == nullptr || t->effectWindow() == nullptr)
         return;
     emit windowGeometryShapeChanged(t->effectWindow(), old);
+}
+
+void EffectsHandlerImpl::slotFrameGeometryChanged(Toplevel *toplevel, const QRect &oldGeometry)
+{
+    // effectWindow() might be nullptr during tear down of the client.
+    if (toplevel->effectWindow()) {
+        emit windowFrameGeometryChanged(toplevel->effectWindow(), oldGeometry);
+    }
 }
 
 void EffectsHandlerImpl::slotPaddingChanged(Toplevel* t, const QRect& old)
@@ -1063,12 +1083,12 @@ WindowQuadType EffectsHandlerImpl::newWindowQuadType()
 
 EffectWindow* EffectsHandlerImpl::findWindow(WId id) const
 {
-    if (Client* w = Workspace::self()->findClient(Predicate::WindowMatch, id))
+    if (X11Client *w = Workspace::self()->findClient(Predicate::WindowMatch, id))
         return w->effectWindow();
     if (Unmanaged* w = Workspace::self()->findUnmanaged(id))
         return w->effectWindow();
     if (waylandServer()) {
-        if (ShellClient *w = waylandServer()->findClient(id)) {
+        if (AbstractClient *w = waylandServer()->findClient(id)) {
             return w->effectWindow();
         }
     }
@@ -1078,7 +1098,7 @@ EffectWindow* EffectsHandlerImpl::findWindow(WId id) const
 EffectWindow* EffectsHandlerImpl::findWindow(KWayland::Server::SurfaceInterface *surf) const
 {
     if (waylandServer()) {
-        if (ShellClient *w = waylandServer()->findClient(surf)) {
+        if (AbstractClient *w = waylandServer()->findClient(surf)) {
             return w->effectWindow();
         }
     }
@@ -1087,13 +1107,8 @@ EffectWindow* EffectsHandlerImpl::findWindow(KWayland::Server::SurfaceInterface 
 
 EffectWindow *EffectsHandlerImpl::findWindow(QWindow *w) const
 {
-    if (waylandServer()) {
-        if (auto c = waylandServer()->findClient(w)) {
-            return c->effectWindow();
-        }
-    }
-    if (auto u = Workspace::self()->findUnmanaged(w->winId())) {
-        return u->effectWindow();
+    if (Toplevel *toplevel = workspace()->findInternal(w)) {
+        return toplevel->effectWindow();
     }
     return nullptr;
 }
@@ -1111,7 +1126,7 @@ EffectWindow *EffectsHandlerImpl::findWindow(const QUuid &id) const
 
 EffectWindowList EffectsHandlerImpl::stackingOrder() const
 {
-    ToplevelList list = Workspace::self()->xStackingOrder();
+    QList<Toplevel *> list = Workspace::self()->xStackingOrder();
     EffectWindowList ret;
     for (Toplevel *t : list) {
         if (EffectWindow *w = effectWindow(t))
@@ -1256,7 +1271,7 @@ QRect EffectsHandlerImpl::clientArea(clientAreaOption opt, const EffectWindow* c
     if (const auto *cl = qobject_cast<const AbstractClient *>(t)) {
         return Workspace::self()->clientArea(opt, cl);
     } else {
-        return Workspace::self()->clientArea(opt, t->geometry().center(), VirtualDesktopManager::self()->current());
+        return Workspace::self()->clientArea(opt, t->frameGeometry().center(), VirtualDesktopManager::self()->current());
     }
 }
 
@@ -1697,6 +1712,19 @@ Effect *EffectsHandlerImpl::findEffect(const QString &name) const
     return (*it).second;
 }
 
+void EffectsHandlerImpl::renderEffectQuickView(EffectQuickView *w) const
+{
+    if (!w->isVisible()) {
+        return;
+    }
+    scene()->paintEffectQuickView(w);
+}
+
+SessionState EffectsHandlerImpl::sessionState() const
+{
+    return Workspace::self()->sessionManager()->state();
+}
+
 //****************************************
 // EffectWindowImpl
 //****************************************
@@ -1710,13 +1738,14 @@ EffectWindowImpl::EffectWindowImpl(Toplevel *toplevel)
     // emitted, effects can't distinguish managed windows from unmanaged
     // windows(e.g. combo box popups, popup menus, etc). Save value of the
     // managed property during construction of EffectWindow. At that time,
-    // parent can be Client, ShellClient, or Unmanaged. So, later on, when
+    // parent can be Client, XdgShellClient, or Unmanaged. So, later on, when
     // an instance of Deleted becomes parent of the EffectWindow, effects
     // can still figure out whether it is/was a managed window.
     managed = toplevel->isClient();
 
-    waylandClient = qobject_cast<KWin::ShellClient *>(toplevel) != nullptr;
-    x11Client = !waylandClient;
+    waylandClient = qobject_cast<KWin::XdgShellClient *>(toplevel) != nullptr;
+    x11Client = qobject_cast<KWin::X11Client *>(toplevel) != nullptr ||
+        qobject_cast<KWin::Unmanaged *>(toplevel) != nullptr;
 }
 
 EffectWindowImpl::~EffectWindowImpl()
@@ -1770,7 +1799,7 @@ void EffectWindowImpl::addLayerRepaint(int x, int y, int w, int h)
 
 const EffectWindowGroup* EffectWindowImpl::group() const
 {
-    if (auto c = qobject_cast<Client *>(toplevel)) {
+    if (auto c = qobject_cast<X11Client *>(toplevel)) {
         return c->group()->effectGroup();
     }
     return nullptr; // TODO
@@ -1807,7 +1836,9 @@ TOPLEVEL_HELPER(int, height, height)
 TOPLEVEL_HELPER(QPoint, pos, pos)
 TOPLEVEL_HELPER(QSize, size, size)
 TOPLEVEL_HELPER(int, screen, screen)
-TOPLEVEL_HELPER(QRect, geometry, geometry)
+TOPLEVEL_HELPER(QRect, geometry, frameGeometry)
+TOPLEVEL_HELPER(QRect, frameGeometry, frameGeometry)
+TOPLEVEL_HELPER(QRect, bufferGeometry, bufferGeometry)
 TOPLEVEL_HELPER(QRect, expandedGeometry, visibleRect)
 TOPLEVEL_HELPER(QRect, rect, rect)
 TOPLEVEL_HELPER(int, desktop, desktop)
@@ -1835,6 +1866,7 @@ TOPLEVEL_HELPER(bool, skipsCloseAnimation, skipsCloseAnimation)
 TOPLEVEL_HELPER(KWayland::Server::SurfaceInterface *, surface, surface)
 TOPLEVEL_HELPER(bool, isPopupWindow, isPopupWindow)
 TOPLEVEL_HELPER(bool, isOutline, isOutline)
+TOPLEVEL_HELPER(pid_t, pid, pid)
 
 #undef TOPLEVEL_HELPER
 
@@ -1909,7 +1941,7 @@ CLIENT_HELPER(bool, isUnresponsive, unresponsive, false)
 
 QSize EffectWindowImpl::basicUnit() const
 {
-    if (auto client = qobject_cast<Client*>(toplevel)){
+    if (auto client = qobject_cast<X11Client *>(toplevel)){
         return client->basicUnit();
     }
     return QSize(1,1);
@@ -1928,12 +1960,15 @@ void EffectWindowImpl::setSceneWindow(Scene::Window* w)
 
 QRegion EffectWindowImpl::shape() const
 {
-    return sw ? sw->shape() : geometry();
+    if (isX11Client() && sceneWindow()) {
+        return sceneWindow()->bufferShape();
+    }
+    return toplevel->rect();
 }
 
 QRect EffectWindowImpl::decorationInnerRect() const
 {
-    auto client = qobject_cast<Client *>(toplevel);
+    auto client = qobject_cast<X11Client *>(toplevel);
     return client ? client->transparentRect() : contentsRect();
 }
 
@@ -1969,7 +2004,7 @@ EffectWindow* EffectWindowImpl::findModal()
 
 QWindow *EffectWindowImpl::internalWindow() const
 {
-    auto client = qobject_cast<ShellClient*>(toplevel);
+    auto client = qobject_cast<InternalClient *>(toplevel);
     if (!client) {
         return nullptr;
     }
@@ -2266,7 +2301,7 @@ void EffectFrameImpl::plasmaThemeChanged()
     free();
 }
 
-void EffectFrameImpl::render(QRegion region, double opacity, double frameOpacity)
+void EffectFrameImpl::render(const QRegion &region, double opacity, double frameOpacity)
 {
     if (m_geometry.isEmpty()) {
         return; // Nothing to display

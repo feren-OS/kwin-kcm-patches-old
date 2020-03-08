@@ -4,7 +4,7 @@
 
 Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
 Copyright (C) 2010 Jorge Mata <matamax123@gmail.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ public:
     TrackMouseEffect();
     ~TrackMouseEffect() override;
     void prePaintScreen(ScreenPrePaintData& data, int time) override;
-    void paintScreen(int mask, QRegion region, ScreenPaintData& data) override;
+    void paintScreen(int mask, const QRegion &region, ScreenPaintData& data) override;
     void postPaintScreen() override;
     void reconfigure(ReconfigureFlags) override;
     bool isActive() const override;

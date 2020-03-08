@@ -88,7 +88,7 @@ bool TouchInputRedirection::focusUpdatesBlocked()
 bool TouchInputRedirection::positionValid() const
 {
     Q_ASSERT(m_touches >= 0);
-    // we can only determine a position with atleast one touch point
+    // we can only determine a position with at least one touch point
     return m_touches == 0;
 }
 
@@ -118,7 +118,7 @@ void TouchInputRedirection::focusUpdate(Toplevel *focusOld, Toplevel *focusNow)
 
     // FIXME: add input transformation API to KWayland::Server::SeatInterface for touch input
     seat->setFocusedTouchSurface(focusNow->surface(), -1 * focusNow->inputTransformation().map(focusNow->pos()) + focusNow->pos());
-    m_focusGeometryConnection = connect(focusNow, &Toplevel::geometryChanged, this,
+    m_focusGeometryConnection = connect(focusNow, &Toplevel::frameGeometryChanged, this,
         [this] {
             if (focus().isNull()) {
                 return;

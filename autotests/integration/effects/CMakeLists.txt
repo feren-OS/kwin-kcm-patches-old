@@ -1,9 +1,7 @@
 if (XCB_ICCCM_FOUND)
     integrationTest(NAME testTranslucency SRCS translucency_test.cpp LIBS XCB::ICCCM)
     integrationTest(NAME testSlidingPopups SRCS slidingpopups_test.cpp LIBS XCB::ICCCM)
-    # This test requires a /dev/dri device, which are not available in the
-    # Debian autopkgtest infrastructure
-    # integrationTest(NAME testShadeWobblyWindows SRCS wobbly_shade_test.cpp LIBS XCB::ICCCM)
+    integrationTest(NAME testShadeWobblyWindows SRCS wobbly_shade_test.cpp LIBS XCB::ICCCM)
 endif()
 integrationTest(NAME testFade SRCS fade_test.cpp)
 integrationTest(WAYLAND_ONLY NAME testEffectWindowGeometry SRCS windowgeometry_test.cpp)

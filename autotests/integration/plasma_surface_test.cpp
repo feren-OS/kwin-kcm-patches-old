@@ -18,9 +18,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "platform.h"
 #include "cursor.h"
-#include "shell_client.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -30,7 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/plasmashell.h>
 #include <KWayland/Client/registry.h>
 #include <KWayland/Client/shm_pool.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
 
 using namespace KWin;
@@ -66,13 +65,12 @@ private Q_SLOTS:
 
 private:
     KWayland::Client::Compositor *m_compositor = nullptr;
-    Shell *m_shell = nullptr;
     PlasmaShell *m_plasmaShell = nullptr;
 };
 
 void PlasmaSurfaceTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
+    qRegisterMetaType<KWin::AbstractClient *>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
@@ -85,7 +83,6 @@ void PlasmaSurfaceTest::init()
 {
     QVERIFY(Test::setupWaylandConnection(Test::AdditionalWaylandInterface::PlasmaShell));
     m_compositor = Test::waylandCompositor();
-    m_shell = Test::waylandShell();
     m_plasmaShell = Test::waylandPlasmaShell();
 
     KWin::Cursor::setPos(640, 512);
@@ -112,10 +109,10 @@ void PlasmaSurfaceTest::testRoleOnAllDesktops_data()
 
 void PlasmaSurfaceTest::testRoleOnAllDesktops()
 {
-    // this test verifies that a ShellClient is set on all desktops when the role changes
+    // this test verifies that a XdgShellClient is set on all desktops when the role changes
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());
@@ -144,7 +141,7 @@ void PlasmaSurfaceTest::testRoleOnAllDesktops()
     QScopedPointer<PlasmaShellSurface> plasmaSurface2(m_plasmaShell->createSurface(surface2.data()));
     QVERIFY(!plasmaSurface2.isNull());
     plasmaSurface2->setRole(role);
-    QScopedPointer<ShellSurface> shellSurface2(Test::createShellSurface(surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     QVERIFY(!shellSurface2.isNull());
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 50), Qt::blue);
     QVERIFY(c2);
@@ -173,7 +170,7 @@ void PlasmaSurfaceTest::testAcceptsFocus()
     // this test verifies that some surface roles don't get focus
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());
@@ -192,7 +189,7 @@ void PlasmaSurfaceTest::testDesktopIsOpaque()
 {
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());
@@ -213,7 +210,7 @@ void PlasmaSurfaceTest::testOSDPlacement()
 {
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());
@@ -225,7 +222,7 @@ void PlasmaSurfaceTest::testOSDPlacement()
     QVERIFY(c);
     QCOMPARE(c->windowType(), NET::OnScreenDisplay);
     QVERIFY(c->isOnScreenDisplay());
-    QCOMPARE(c->geometry(), QRect(590, 649, 100, 50));
+    QCOMPARE(c->frameGeometry(), QRect(590, 649, 100, 50));
 
     // change the screen size
     QSignalSpy screensChangedSpy(screens(), &Screens::changed);
@@ -241,24 +238,22 @@ void PlasmaSurfaceTest::testOSDPlacement()
     QCOMPARE(screens()->geometry(0), geometries.at(0));
     QCOMPARE(screens()->geometry(1), geometries.at(1));
 
-    QCOMPARE(c->geometry(), QRect(590, 649, 100, 50));
+    QCOMPARE(c->frameGeometry(), QRect(590, 649, 100, 50));
 
     // change size of window
-    QSignalSpy geometryChangedSpy(c, &AbstractClient::geometryShapeChanged);
-    QVERIFY(geometryChangedSpy.isValid());
+    QSignalSpy frameGeometryChangedSpy(c, &AbstractClient::frameGeometryChanged);
+    QVERIFY(frameGeometryChangedSpy.isValid());
     Test::render(surface.data(), QSize(200, 100), Qt::red);
-    QVERIFY(geometryChangedSpy.wait());
-    QCOMPARE(c->geometry(), QRect(540, 616, 200, 100));
+    QVERIFY(frameGeometryChangedSpy.wait());
+    QCOMPARE(c->frameGeometry(), QRect(540, 616, 200, 100));
 }
 
 void PlasmaSurfaceTest::testOSDPlacementManualPosition_data()
 {
-    QTest::addColumn<Test::ShellSurfaceType>("type");
+    QTest::addColumn<Test::XdgShellSurfaceType>("type");
 
-    QTest::newRow("wl-shell") << Test::ShellSurfaceType::WlShell;
-    QTest::newRow("xdgv5") << Test::ShellSurfaceType::XdgShellV5;
-    QTest::newRow("xdgv6") << Test::ShellSurfaceType::XdgShellV6;
-    QTest::newRow("xdgWmBase") << Test::ShellSurfaceType::XdgShellStable;
+    QTest::newRow("xdgv6") << Test::XdgShellSurfaceType::XdgShellV6;
+    QTest::newRow("xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
 }
 
 void PlasmaSurfaceTest::testOSDPlacementManualPosition()
@@ -271,8 +266,8 @@ void PlasmaSurfaceTest::testOSDPlacementManualPosition()
 
     plasmaSurface->setPosition(QPoint(50, 70));
 
-    QFETCH(Test::ShellSurfaceType, type);
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(type, surface.data()));
+    QFETCH(Test::XdgShellSurfaceType, type);
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
     QVERIFY(!shellSurface.isNull());
 
     // now render and map the window
@@ -282,42 +277,34 @@ void PlasmaSurfaceTest::testOSDPlacementManualPosition()
     QVERIFY(c->isInitialPositionSet());
     QCOMPARE(c->windowType(), NET::OnScreenDisplay);
     QVERIFY(c->isOnScreenDisplay());
-    QCOMPARE(c->geometry(), QRect(50, 70, 100, 50));
+    QCOMPARE(c->frameGeometry(), QRect(50, 70, 100, 50));
 }
 
 
 void PlasmaSurfaceTest::testPanelTypeHasStrut_data()
 {
-    QTest::addColumn<Test::ShellSurfaceType>("type");
+    QTest::addColumn<Test::XdgShellSurfaceType>("type");
     QTest::addColumn<PlasmaShellSurface::PanelBehavior>("panelBehavior");
     QTest::addColumn<bool>("expectedStrut");
     QTest::addColumn<QRect>("expectedMaxArea");
     QTest::addColumn<KWin::Layer>("expectedLayer");
 
-    QTest::newRow("always visible - wlShell") << Test::ShellSurfaceType::WlShell << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
-    QTest::newRow("always visible - xdgShellV5") << Test::ShellSurfaceType::XdgShellV5 << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
-    QTest::newRow("always visible - xdgShellV6") << Test::ShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
-    QTest::newRow("always visible - xdgWmBase") << Test::ShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
-    QTest::newRow("autohide - wlShell") << Test::ShellSurfaceType::WlShell << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
-    QTest::newRow("autohide - xdgShellV5") << Test::ShellSurfaceType::XdgShellV5 << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
-    QTest::newRow("autohide - xdgShellV6") << Test::ShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
-    QTest::newRow("autohide - xdgWmBase") << Test::ShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
-    QTest::newRow("windows can cover - wlShell") << Test::ShellSurfaceType::WlShell << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
-    QTest::newRow("windows can cover - xdgShellV5") << Test::ShellSurfaceType::XdgShellV5 << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
-    QTest::newRow("windows can cover - xdgShellV6") << Test::ShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
-    QTest::newRow("windows can cover - xdgWmBase") << Test::ShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
-    QTest::newRow("windows go below - wlShell") << Test::ShellSurfaceType::WlShell << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
-    QTest::newRow("windows go below - xdgShellV5") << Test::ShellSurfaceType::XdgShellV5 << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
-    QTest::newRow("windows go below - xdgShellV6") << Test::ShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
-    QTest::newRow("windows go below - xdgWmBase") << Test::ShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
+    QTest::newRow("always visible - xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
+    QTest::newRow("always visible - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
+    QTest::newRow("autohide - xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
+    QTest::newRow("autohide - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
+    QTest::newRow("windows can cover - xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
+    QTest::newRow("windows can cover - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
+    QTest::newRow("windows go below - xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6 << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
+    QTest::newRow("windows go below - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
 }
 
 void PlasmaSurfaceTest::testPanelTypeHasStrut()
 {
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QFETCH(Test::ShellSurfaceType, type);
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(type, surface.data()));
+    QFETCH(Test::XdgShellSurfaceType, type);
+    QScopedPointer<QObject> shellSurface(Test::createXdgShellSurface(type, surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());
@@ -332,7 +319,7 @@ void PlasmaSurfaceTest::testPanelTypeHasStrut()
     QVERIFY(c);
     QCOMPARE(c->windowType(), NET::Dock);
     QVERIFY(c->isDock());
-    QCOMPARE(c->geometry(), QRect(0, 0, 100, 50));
+    QCOMPARE(c->frameGeometry(), QRect(0, 0, 100, 50));
     QTEST(c->hasStrut(), "expectedStrut");
     QTEST(workspace()->clientArea(MaximizeArea, 0, 0), "expectedMaxArea");
     QTEST(c->layer(), "expectedLayer");
@@ -364,7 +351,7 @@ void PlasmaSurfaceTest::testPanelWindowsCanCover()
     // triggering the screen edge should raise the panel.
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(Test::ShellSurfaceType::WlShell, surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());
@@ -373,14 +360,13 @@ void PlasmaSurfaceTest::testPanelWindowsCanCover()
     plasmaSurface->setPosition(panelGeometry.topLeft());
     plasmaSurface->setPanelBehavior(PlasmaShellSurface::PanelBehavior::WindowsCanCover);
 
-
     // now render and map the window
     auto panel = Test::renderAndWaitForShown(surface.data(), panelGeometry.size(), Qt::blue);
 
     QVERIFY(panel);
     QCOMPARE(panel->windowType(), NET::Dock);
     QVERIFY(panel->isDock());
-    QCOMPARE(panel->geometry(), panelGeometry);
+    QCOMPARE(panel->frameGeometry(), panelGeometry);
     QCOMPARE(panel->hasStrut(), false);
     QCOMPARE(workspace()->clientArea(MaximizeArea, 0, 0), QRect(0, 0, 1280, 1024));
     QCOMPARE(panel->layer(), KWin::NormalLayer);
@@ -388,7 +374,7 @@ void PlasmaSurfaceTest::testPanelWindowsCanCover()
     // create a Window
     QScopedPointer<Surface> surface2(Test::createSurface());
     QVERIFY(!surface2.isNull());
-    QScopedPointer<QObject> shellSurface2(Test::createShellSurface(Test::ShellSurfaceType::WlShell, surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     QVERIFY(!shellSurface2.isNull());
 
     QFETCH(QRect, windowGeometry);
@@ -399,7 +385,7 @@ void PlasmaSurfaceTest::testPanelWindowsCanCover()
     QVERIFY(c->isActive());
     QCOMPARE(c->layer(), KWin::NormalLayer);
     c->move(windowGeometry.topLeft());
-    QCOMPARE(c->geometry(), windowGeometry);
+    QCOMPARE(c->frameGeometry(), windowGeometry);
 
     auto stackingOrder = workspace()->stackingOrder();
     QCOMPARE(stackingOrder.count(), 2);
@@ -431,7 +417,7 @@ void PlasmaSurfaceTest::testPanelActivate()
 {
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(Test::ShellSurfaceType::WlShell, surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
     QScopedPointer<PlasmaShellSurface> plasmaSurface(m_plasmaShell->createSurface(surface.data()));
     QVERIFY(!plasmaSurface.isNull());

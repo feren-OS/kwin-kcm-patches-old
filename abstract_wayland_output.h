@@ -56,13 +56,28 @@ class KWIN_EXPORT AbstractWaylandOutput : public AbstractOutput
 {
     Q_OBJECT
 public:
+    enum class Transform {
+        Normal,
+        Rotated90,
+        Rotated180,
+        Rotated270,
+        Flipped,
+        Flipped90,
+        Flipped180,
+        Flipped270
+    };
+
     explicit AbstractWaylandOutput(QObject *parent = nullptr);
     ~AbstractWaylandOutput() override;
 
     QString name() const override;
     QByteArray uuid() const override;
 
+    QSize modeSize() const;
+
+    // TODO: The name is ambiguous. Rename this function.
     QSize pixelSize() const;
+
     qreal scale() const override;
 
     /**
@@ -70,9 +85,17 @@ public:
      */
     QRect geometry() const override;
     QSize physicalSize() const override;
-    Qt::ScreenOrientation orientation() const override {
-        return m_orientation;
-    }
+
+    /**
+     * Returns the orientation of this output.
+     *
+     * - Flipped along the vertical axis is landscape + inv. portrait.
+     * - Rotated 90° and flipped along the horizontal axis is portrait + inv. landscape
+     * - Rotated 180° and flipped along the vertical axis is inv. landscape + inv. portrait
+     * - Rotated 270° and flipped along the horizontal axis is inv. portrait + inv. landscape +
+     *   portrait
+     */
+    Transform transform() const;
 
     /**
      * Current refresh rate in 1/ms.
@@ -119,9 +142,6 @@ protected:
 
     QPoint globalPos() const;
 
-    void setOrientation(Qt::ScreenOrientation set) {
-        m_orientation = set;
-    }
     bool internal() const {
         return m_internal;
     }
@@ -141,11 +161,12 @@ protected:
     virtual void updateMode(int modeIndex) {
         Q_UNUSED(modeIndex);
     }
-    virtual void transform(KWayland::Server::OutputDeviceInterface::Transform transform) {
+    virtual void updateTransform(Transform transform) {
         Q_UNUSED(transform);
     }
 
     void setWaylandMode(const QSize &size, int refreshRate);
+    void setTransform(Transform transform);
 
     QSize orientateSize(const QSize &size) const;
 
@@ -153,13 +174,14 @@ private:
     void createWaylandOutput();
     void createXdgOutput();
 
+    void setTransform(KWayland::Server::OutputDeviceInterface::Transform transform);
+
     QPointer<KWayland::Server::OutputInterface> m_waylandOutput;
     QPointer<KWayland::Server::XdgOutputInterface> m_xdgOutput;
     QPointer<KWayland::Server::OutputDeviceInterface> m_waylandOutputDevice;
 
     KWayland::Server::OutputInterface::DpmsMode m_dpms = KWayland::Server::OutputInterface::DpmsMode::On;
 
-    Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
     bool m_internal = false;
     bool m_supportsDpms = false;
 };

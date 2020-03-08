@@ -4,6 +4,7 @@
 
 Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
 Copyright (C) 2009, 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 Based on glcompmgr code by Felix Bellaby.
 Using code from Compiz and Beryl.
@@ -33,9 +34,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "platformsupport/scenes/opengl/texture.h"
 
 #include <kwinglplatform.h>
+#include <kwineffectquickview.h>
 
 #include "utils.h"
-#include "client.h"
+#include "x11client.h"
 #include "composite.h"
 #include "deleted.h"
 #include "effects.h"
@@ -336,9 +338,6 @@ SceneOpenGL::SceneOpenGL(OpenGLBackend *backend, QObject *parent)
         init_ok = false;
         return;
     }
-    if (!glPlatform->isGLES() && !m_backend->isSurfaceLessContext()) {
-        glDrawBuffer(GL_BACK);
-    }
 
     m_debug = qstrcmp(qgetenv("KWIN_GL_DEBUG"), "1") == 0;
     initDebugOutput();
@@ -364,12 +363,8 @@ SceneOpenGL::SceneOpenGL(OpenGLBackend *backend, QObject *parent)
     }
 }
 
-static SceneOpenGL *gs_debuggedScene = nullptr;
 SceneOpenGL::~SceneOpenGL()
 {
-    // do cleanup after initBuffer()
-    gs_debuggedScene = nullptr;
-
     if (init_ok) {
         makeOpenGLContextCurrent();
     }
@@ -381,23 +376,6 @@ SceneOpenGL::~SceneOpenGL()
     delete m_backend;
 }
 
-static void scheduleVboReInit()
-{
-    if (!gs_debuggedScene)
-        return;
-
-    static QPointer<QTimer> timer;
-    if (!timer) {
-        delete timer;
-        timer = new QTimer(gs_debuggedScene);
-        timer->setSingleShot(true);
-        QObject::connect(timer.data(), &QTimer::timeout, gs_debuggedScene, []() {
-            GLVertexBuffer::cleanup();
-            GLVertexBuffer::initStatic();
-        });
-    }
-    timer->start(250);
-}
 
 void SceneOpenGL::initDebugOutput()
 {
@@ -425,8 +403,6 @@ void SceneOpenGL::initDebugOutput()
         }
     }
 
-    gs_debuggedScene = this;
-
     // Set the callback function
     auto callback = [](GLenum source, GLenum type, GLuint id,
                        GLenum severity, GLsizei length,
@@ -445,14 +421,6 @@ void SceneOpenGL::initDebugOutput()
             break;
 
         case GL_DEBUG_TYPE_OTHER:
-            // at least the nvidia driver seems prone to end up with invalid VBOs after
-            // transferring them between system heap and VRAM
-            // so we re-init them whenever this happens (typically when switching VT, resuming
-            // from STR and XRandR events - #344326
-            if (strstr(message, "Buffer detailed info:") && strstr(message, "has been updated"))
-                scheduleVboReInit();
-            // fall through! for general message printing
-            Q_FALLTHROUGH();
         case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
         case GL_DEBUG_TYPE_PORTABILITY:
         case GL_DEBUG_TYPE_PERFORMANCE:
@@ -646,7 +614,7 @@ void SceneOpenGL2::paintCursor()
     glDisable(GL_BLEND);
 }
 
-qint64 SceneOpenGL::paint(QRegion damage, ToplevelList toplevels)
+qint64 SceneOpenGL::paint(QRegion damage, QList<Toplevel *> toplevels)
 {
     // actually paint the frame, flushed with the NEXT frame
     createStackingOrder(toplevels);
@@ -858,6 +826,30 @@ void SceneOpenGL::paintDesktop(int desktop, int mask, const QRegion &region, Scr
     glDisable(GL_SCISSOR_TEST);
 }
 
+void SceneOpenGL::paintEffectQuickView(EffectQuickView *w)
+{
+    GLShader *shader = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture);
+    const QRect rect = w->geometry();
+
+    GLTexture *t = w->bufferAsTexture();
+    if (!t) {
+        return;
+    }
+
+    QMatrix4x4 mvp(projectionMatrix());
+    mvp.translate(rect.x(), rect.y());
+    shader->setUniform(GLShader::ModelViewProjectionMatrix, mvp);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    t->bind();
+    t->render(QRegion(infiniteRegion()), w->geometry());
+    t->unbind();
+    glDisable(GL_BLEND);
+
+    ShaderManager::instance()->popShader();
+}
+
 bool SceneOpenGL::makeOpenGLContextCurrent()
 {
     return m_backend->makeCurrent();
@@ -1039,9 +1031,7 @@ void SceneOpenGL2::doPaintBackground(const QVector< float >& vertices)
 
 Scene::Window *SceneOpenGL2::createWindow(Toplevel *t)
 {
-    SceneOpenGL2Window *w = new SceneOpenGL2Window(t);
-    w->setScene(this);
-    return w;
+    return new OpenGLWindow(t, this);
 }
 
 void SceneOpenGL2::finalDrawWindow(EffectWindowImpl* w, int mask, QRegion region, WindowPaintData& data)
@@ -1071,22 +1061,22 @@ void SceneOpenGL2::performPaintWindow(EffectWindowImpl* w, int mask, QRegion reg
 }
 
 //****************************************
-// SceneOpenGL::Window
+// OpenGLWindow
 //****************************************
 
-SceneOpenGL::Window::Window(Toplevel* c)
-    : Scene::Window(c)
-    , m_scene(nullptr)
+OpenGLWindow::OpenGLWindow(Toplevel *toplevel, SceneOpenGL *scene)
+    : Scene::Window(toplevel)
+    , m_scene(scene)
 {
 }
 
-SceneOpenGL::Window::~Window()
+OpenGLWindow::~OpenGLWindow()
 {
 }
 
 static SceneOpenGLTexture *s_frameTexture = nullptr;
 // Bind the window pixmap to an OpenGL texture.
-bool SceneOpenGL::Window::bindTexture()
+bool OpenGLWindow::bindTexture()
 {
     s_frameTexture = nullptr;
     OpenGLWindowPixmap *pixmap = windowPixmap<OpenGLWindowPixmap>();
@@ -1104,12 +1094,12 @@ bool SceneOpenGL::Window::bindTexture()
     return pixmap->bind();
 }
 
-QMatrix4x4 SceneOpenGL::Window::transformation(int mask, const WindowPaintData &data) const
+QMatrix4x4 OpenGLWindow::transformation(int mask, const WindowPaintData &data) const
 {
     QMatrix4x4 matrix;
     matrix.translate(x(), y());
 
-    if (!(mask & PAINT_WINDOW_TRANSFORMED))
+    if (!(mask & Scene::PAINT_WINDOW_TRANSFORMED))
         return matrix;
 
     matrix.translate(data.translation());
@@ -1128,12 +1118,12 @@ QMatrix4x4 SceneOpenGL::Window::transformation(int mask, const WindowPaintData &
     return matrix;
 }
 
-bool SceneOpenGL::Window::beginRenderWindow(int mask, const QRegion &region, WindowPaintData &data)
+bool OpenGLWindow::beginRenderWindow(int mask, const QRegion &region, WindowPaintData &data)
 {
     if (region.isEmpty())
         return false;
 
-    m_hardwareClipping = region != infiniteRegion() && (mask & PAINT_WINDOW_TRANSFORMED) && !(mask & PAINT_SCREEN_TRANSFORMED);
+    m_hardwareClipping = region != infiniteRegion() && (mask & Scene::PAINT_WINDOW_TRANSFORMED) && !(mask & Scene::PAINT_SCREEN_TRANSFORMED);
     if (region != infiniteRegion() && !m_hardwareClipping) {
         WindowQuadList quads;
         quads.reserve(data.quads.count());
@@ -1172,16 +1162,16 @@ bool SceneOpenGL::Window::beginRenderWindow(int mask, const QRegion &region, Win
 
     // Update the texture filter
     if (waylandServer()) {
-        filter = ImageFilterGood;
+        filter = Scene::ImageFilterGood;
         s_frameTexture->setFilter(GL_LINEAR);
     } else {
         if (options->glSmoothScale() != 0 &&
-            (mask & (PAINT_WINDOW_TRANSFORMED | PAINT_SCREEN_TRANSFORMED)))
-            filter = ImageFilterGood;
+            (mask & (Scene::PAINT_WINDOW_TRANSFORMED | Scene::PAINT_SCREEN_TRANSFORMED)))
+            filter = Scene::ImageFilterGood;
         else
-            filter = ImageFilterFast;
+            filter = Scene::ImageFilterFast;
 
-        s_frameTexture->setFilter(filter == ImageFilterGood ? GL_LINEAR : GL_NEAREST);
+        s_frameTexture->setFilter(filter == Scene::ImageFilterGood ? GL_LINEAR : GL_NEAREST);
     }
 
     const GLVertexAttrib attribs[] = {
@@ -1196,14 +1186,14 @@ bool SceneOpenGL::Window::beginRenderWindow(int mask, const QRegion &region, Win
     return true;
 }
 
-void SceneOpenGL::Window::endRenderWindow()
+void OpenGLWindow::endRenderWindow()
 {
     if (m_hardwareClipping) {
         glDisable(GL_SCISSOR_TEST);
     }
 }
 
-GLTexture *SceneOpenGL::Window::getDecorationTexture() const
+GLTexture *OpenGLWindow::getDecorationTexture() const
 {
     if (AbstractClient *client = dynamic_cast<AbstractClient *>(toplevel)) {
         if (client->noBorder()) {
@@ -1229,25 +1219,12 @@ GLTexture *SceneOpenGL::Window::getDecorationTexture() const
     return nullptr;
 }
 
-WindowPixmap* SceneOpenGL::Window::createWindowPixmap()
+WindowPixmap *OpenGLWindow::createWindowPixmap()
 {
     return new OpenGLWindowPixmap(this, m_scene);
 }
 
-//***************************************
-// SceneOpenGL2Window
-//***************************************
-SceneOpenGL2Window::SceneOpenGL2Window(Toplevel *c)
-    : SceneOpenGL::Window(c)
-    , m_blendingEnabled(false)
-{
-}
-
-SceneOpenGL2Window::~SceneOpenGL2Window()
-{
-}
-
-QVector4D SceneOpenGL2Window::modulate(float opacity, float brightness) const
+QVector4D OpenGLWindow::modulate(float opacity, float brightness) const
 {
     const float a = opacity;
     const float rgb = opacity * brightness;
@@ -1255,7 +1232,7 @@ QVector4D SceneOpenGL2Window::modulate(float opacity, float brightness) const
     return QVector4D(rgb, rgb, rgb, a);
 }
 
-void SceneOpenGL2Window::setBlendEnabled(bool enabled)
+void OpenGLWindow::setBlendEnabled(bool enabled)
 {
     if (enabled && !m_blendingEnabled)
         glEnable(GL_BLEND);
@@ -1265,7 +1242,7 @@ void SceneOpenGL2Window::setBlendEnabled(bool enabled)
     m_blendingEnabled = enabled;
 }
 
-void SceneOpenGL2Window::setupLeafNodes(LeafNode *nodes, const WindowQuadList *quads, const WindowPaintData &data)
+void OpenGLWindow::setupLeafNodes(LeafNode *nodes, const WindowQuadList *quads, const WindowPaintData &data)
 {
     if (!quads[ShadowLeaf].isEmpty()) {
         nodes[ShadowLeaf].texture = static_cast<SceneOpenGLShadow *>(m_shadow)->shadowTexture();
@@ -1302,7 +1279,7 @@ void SceneOpenGL2Window::setupLeafNodes(LeafNode *nodes, const WindowQuadList *q
     }
 }
 
-QMatrix4x4 SceneOpenGL2Window::modelViewProjectionMatrix(int mask, const WindowPaintData &data) const
+QMatrix4x4 OpenGLWindow::modelViewProjectionMatrix(int mask, const WindowPaintData &data) const
 {
     SceneOpenGL2 *scene = static_cast<SceneOpenGL2 *>(m_scene);
 
@@ -1326,7 +1303,7 @@ QMatrix4x4 SceneOpenGL2Window::modelViewProjectionMatrix(int mask, const WindowP
     return scene->projectionMatrix() * mvMatrix;
 }
 
-void SceneOpenGL2Window::renderSubSurface(GLShader *shader, const QMatrix4x4 &mvp, const QMatrix4x4 &windowMatrix, OpenGLWindowPixmap *pixmap, const QRegion &region, bool hardwareClipping)
+void OpenGLWindow::renderSubSurface(GLShader *shader, const QMatrix4x4 &mvp, const QMatrix4x4 &windowMatrix, OpenGLWindowPixmap *pixmap, const QRegion &region, bool hardwareClipping)
 {
     QMatrix4x4 newWindowMatrix = windowMatrix;
     newWindowMatrix.translate(pixmap->subSurface()->position().x(), pixmap->subSurface()->position().y());
@@ -1355,7 +1332,7 @@ void SceneOpenGL2Window::renderSubSurface(GLShader *shader, const QMatrix4x4 &mv
     }
 }
 
-void SceneOpenGL2Window::performPaint(int mask, QRegion region, WindowPaintData data)
+void OpenGLWindow::performPaint(int mask, QRegion region, WindowPaintData data)
 {
     if (!beginRenderWindow(mask, region, data))
         return;
@@ -1364,9 +1341,30 @@ void SceneOpenGL2Window::performPaint(int mask, QRegion region, WindowPaintData 
     const QMatrix4x4 modelViewProjection = modelViewProjectionMatrix(mask, data);
     const QMatrix4x4 mvpMatrix = modelViewProjection * windowMatrix;
 
+
+    bool useX11TextureClamp = false;
+
     GLShader *shader = data.shader;
+    GLenum filter;
+
+    if (waylandServer()) {
+        filter = GL_LINEAR;
+    } else {
+        const bool isTransformed = mask & (Effect::PAINT_WINDOW_TRANSFORMED |
+                                           Effect::PAINT_SCREEN_TRANSFORMED);
+        useX11TextureClamp = isTransformed;
+        if (isTransformed && options->glSmoothScale() != 0) {
+            filter = GL_LINEAR;
+        } else {
+            filter = GL_NEAREST;
+        }
+    }
+
     if (!shader) {
         ShaderTraits traits = ShaderTrait::MapTexture;
+        if (useX11TextureClamp) {
+            traits |= ShaderTrait::ClampTexture;
+        }
 
         if (data.opacity() != 1.0 || data.brightness() != 1.0 || data.crossFadeProgress() != 1.0)
             traits |= ShaderTrait::Modulate;
@@ -1379,19 +1377,6 @@ void SceneOpenGL2Window::performPaint(int mask, QRegion region, WindowPaintData 
     shader->setUniform(GLShader::ModelViewProjectionMatrix, mvpMatrix);
 
     shader->setUniform(GLShader::Saturation, data.saturation());
-
-    GLenum filter;
-    if (waylandServer()) {
-        filter = GL_LINEAR;
-    } else {
-        const bool isTransformed = mask & (Effect::PAINT_WINDOW_TRANSFORMED |
-                                           Effect::PAINT_SCREEN_TRANSFORMED);
-        if (isTransformed && options->glSmoothScale() != 0) {
-            filter = GL_LINEAR;
-        } else {
-            filter = GL_NEAREST;
-        }
-    }
 
     WindowQuadList quads[LeafCount];
 
@@ -1489,6 +1474,25 @@ void SceneOpenGL2Window::performPaint(int mask, QRegion region, WindowPaintData 
         nodes[i].texture->setWrapMode(GL_CLAMP_TO_EDGE);
         nodes[i].texture->bind();
 
+        if (i == ContentLeaf && useX11TextureClamp) {
+            // X11 windows are reparented to have their buffer in the middle of a larger texture
+            // holding the frame window.
+            // This code passes the texture geometry to the fragment shader
+            // any samples near the edge of the texture will be constrained to be
+            // at least half a pixel in bounds, meaning we don't bleed the transparent border
+            QRectF bufferContentRect = clientShape().boundingRect();
+            bufferContentRect.adjust(0.5, 0.5, -0.5, -0.5);
+            const QRect bufferGeometry = toplevel->bufferGeometry();
+
+            float leftClamp = bufferContentRect.left() / bufferGeometry.width();
+            float topClamp = bufferContentRect.top() / bufferGeometry.height();
+            float rightClamp = bufferContentRect.right() / bufferGeometry.width();
+            float bottomClamp = bufferContentRect.bottom() / bufferGeometry.height();
+            shader->setUniform(GLShader::TextureClamp, QVector4D({leftClamp, topClamp, rightClamp, bottomClamp}));
+        } else {
+            shader->setUniform(GLShader::TextureClamp, QVector4D({0, 0, 1, 1}));
+        }
+
         vbo->draw(region, primitiveType, nodes[i].firstVertex, nodes[i].vertexCount, m_hardwareClipping);
     }
 
@@ -1497,7 +1501,8 @@ void SceneOpenGL2Window::performPaint(int mask, QRegion region, WindowPaintData 
     // render sub-surfaces
     auto wp = windowPixmap<OpenGLWindowPixmap>();
     const auto &children = wp ? wp->children() : QVector<WindowPixmap*>();
-    windowMatrix.translate(toplevel->clientPos().x(), toplevel->clientPos().y());
+    const QPoint mainSurfaceOffset = bufferOffset();
+    windowMatrix.translate(mainSurfaceOffset.x(), mainSurfaceOffset.y());
     for (auto pixmap : children) {
         if (pixmap->subSurface().isNull() || pixmap->subSurface()->surface().isNull() || !pixmap->subSurface()->surface()->isMapped()) {
             continue;
@@ -1536,6 +1541,27 @@ OpenGLWindowPixmap::~OpenGLWindowPixmap()
 {
 }
 
+static bool needsPixmapUpdate(const OpenGLWindowPixmap *pixmap)
+{
+    // That's a regular Wayland client.
+    if (pixmap->surface()) {
+        return !pixmap->surface()->trackedDamage().isEmpty();
+    }
+
+    // That's an internal client with a raster buffer attached.
+    if (!pixmap->internalImage().isNull()) {
+        return !pixmap->toplevel()->damage().isEmpty();
+    }
+
+    // That's an internal client with an opengl framebuffer object attached.
+    if (!pixmap->fbo().isNull()) {
+        return !pixmap->toplevel()->damage().isEmpty();
+    }
+
+    // That's an X11 client.
+    return false;
+}
+
 bool OpenGLWindowPixmap::bind()
 {
     if (!m_texture->isNull()) {
@@ -1543,8 +1569,7 @@ bool OpenGLWindowPixmap::bind()
         if (subSurface().isNull() && !toplevel()->damage().isEmpty()) {
             updateBuffer();
         }
-        auto s = surface();
-        if (s && !s->trackedDamage().isEmpty()) {
+        if (needsPixmapUpdate(this)) {
             m_texture->updateFromPixmap(this);
             // mipmaps need to be updated
             m_texture->setDirty();
@@ -2488,14 +2513,59 @@ static QImage rotate(const QImage &srcImage, const QRect &srcRect)
     return image;
 }
 
+static void clamp_row(int left, int width, int right, const uint32_t *src, uint32_t *dest)
+{
+    std::fill_n(dest, left, *src);
+    std::copy(src, src + width, dest + left);
+    std::fill_n(dest + left + width, right, *(src + width - 1));
+}
+
+static void clamp_sides(int left, int width, int right, const uint32_t *src, uint32_t *dest)
+{
+    std::fill_n(dest, left, *src);
+    std::fill_n(dest + left + width, right, *(src + width - 1));
+}
+
+static void clamp(QImage &image, const QRect &viewport)
+{
+    Q_ASSERT(image.depth() == 32);
+
+    const QRect rect = image.rect();
+
+    const int left = viewport.left() - rect.left();
+    const int top = viewport.top() - rect.top();
+    const int right = rect.right() - viewport.right();
+    const int bottom = rect.bottom() - viewport.bottom();
+
+    const int width = rect.width() - left - right;
+    const int height = rect.height() - top - bottom;
+
+    const uint32_t *firstRow = reinterpret_cast<uint32_t *>(image.scanLine(top));
+    const uint32_t *lastRow = reinterpret_cast<uint32_t *>(image.scanLine(top + height - 1));
+
+    for (int i = 0; i < top; ++i) {
+        uint32_t *dest = reinterpret_cast<uint32_t *>(image.scanLine(i));
+        clamp_row(left, width, right, firstRow + left, dest);
+    }
+
+    for (int i = 0; i < height; ++i) {
+        uint32_t *dest = reinterpret_cast<uint32_t *>(image.scanLine(top + i));
+        clamp_sides(left, width, right, dest + left, dest);
+    }
+
+    for (int i = 0; i < bottom; ++i) {
+        uint32_t *dest = reinterpret_cast<uint32_t *>(image.scanLine(top + height + i));
+        clamp_row(left, width, right, lastRow + left, dest);
+    }
+}
+
 void SceneOpenGLDecorationRenderer::render()
 {
     const QRegion scheduled = getScheduled();
-    const bool dirty = areImageSizesDirty();
-    if (scheduled.isEmpty() && !dirty) {
+    if (scheduled.isEmpty()) {
         return;
     }
-    if (dirty) {
+    if (areImageSizesDirty()) {
         resizeTexture();
         resetImageSizesDirty();
     }
@@ -2508,23 +2578,70 @@ void SceneOpenGLDecorationRenderer::render()
     QRect left, top, right, bottom;
     client()->client()->layoutDecorationRects(left, top, right, bottom);
 
-    const QRect geometry = dirty ? QRect(QPoint(0, 0), client()->client()->geometry().size()) : scheduled.boundingRect();
+    // We pad each part in the decoration atlas in order to avoid texture bleeding.
+    const int padding = 1;
 
-    auto renderPart = [this](const QRect &geo, const QRect &partRect, const QPoint &offset, bool rotated = false) {
+    auto renderPart = [=](const QRect &geo, const QRect &partRect, const QPoint &position, bool rotated = false) {
         if (!geo.isValid()) {
             return;
         }
-        QImage image = renderToImage(geo);
+
+        QRect rect = geo;
+
+        // We allow partial decoration updates and it might just so happen that the dirty region
+        // is completely contained inside the decoration part, i.e. the dirty region doesn't touch
+        // any of the decoration's edges. In that case, we should **not** pad the dirty region.
+        if (rect.left() == partRect.left()) {
+            rect.setLeft(rect.left() - padding);
+        }
+        if (rect.top() == partRect.top()) {
+            rect.setTop(rect.top() - padding);
+        }
+        if (rect.right() == partRect.right()) {
+            rect.setRight(rect.right() + padding);
+        }
+        if (rect.bottom() == partRect.bottom()) {
+            rect.setBottom(rect.bottom() + padding);
+        }
+
+        QRect viewport = geo.translated(-rect.x(), -rect.y());
+        const qreal devicePixelRatio = client()->client()->screenScale();
+
+        QImage image(rect.size() * devicePixelRatio, QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(devicePixelRatio);
+        image.fill(Qt::transparent);
+
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setViewport(QRect(viewport.topLeft(), viewport.size() * devicePixelRatio));
+        painter.setWindow(QRect(geo.topLeft(), geo.size() * devicePixelRatio));
+        painter.setClipRect(geo);
+        renderToPainter(&painter, geo);
+        painter.end();
+
+        clamp(image, QRect(viewport.topLeft(), viewport.size() * devicePixelRatio));
+
         if (rotated) {
             // TODO: get this done directly when rendering to the image
-            image = rotate(image, QRect(geo.topLeft() - partRect.topLeft(), geo.size()));
+            image = rotate(image, QRect(QPoint(), rect.size()));
+            viewport = QRect(viewport.y(), viewport.x(), viewport.height(), viewport.width());
         }
-        m_texture->update(image, (geo.topLeft() - partRect.topLeft() + offset) * image.devicePixelRatio());
+
+        const QPoint dirtyOffset = geo.topLeft() - partRect.topLeft();
+        m_texture->update(image, (position + dirtyOffset - viewport.topLeft()) * image.devicePixelRatio());
     };
-    renderPart(left.intersected(geometry), left, QPoint(0, top.height() + bottom.height() + 2), true);
-    renderPart(top.intersected(geometry), top, QPoint(0, 0));
-    renderPart(right.intersected(geometry), right, QPoint(0, top.height() + bottom.height() + left.width() + 3), true);
-    renderPart(bottom.intersected(geometry), bottom, QPoint(0, top.height() + 1));
+
+    const QRect geometry = scheduled.boundingRect();
+
+    const QPoint topPosition(padding, padding);
+    const QPoint bottomPosition(padding, topPosition.y() + top.height() + 2 * padding);
+    const QPoint leftPosition(padding, bottomPosition.y() + bottom.height() + 2 * padding);
+    const QPoint rightPosition(padding, leftPosition.y() + left.width() + 2 * padding);
+
+    renderPart(left.intersected(geometry), left, leftPosition, true);
+    renderPart(top.intersected(geometry), top, topPosition);
+    renderPart(right.intersected(geometry), right, rightPosition, true);
+    renderPart(bottom.intersected(geometry), bottom, bottomPosition);
 }
 
 static int align(int value, int align)
@@ -2541,7 +2658,12 @@ void SceneOpenGLDecorationRenderer::resizeTexture()
     size.rwidth() = qMax(qMax(top.width(), bottom.width()),
                          qMax(left.height(), right.height()));
     size.rheight() = top.height() + bottom.height() +
-                     left.width() + right.width() + 3;
+                     left.width() + right.width();
+
+    // Reserve some space for padding. We pad decoration parts to avoid texture bleeding.
+    const int padding = 1;
+    size.rwidth() += 2 * padding;
+    size.rheight() += 4 * 2 * padding;
 
     size.rwidth() = align(size.width(), 128);
 

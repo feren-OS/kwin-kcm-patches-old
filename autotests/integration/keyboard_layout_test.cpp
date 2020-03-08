@@ -18,10 +18,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "keyboard_input.h"
 #include "keyboard_layout.h"
 #include "platform.h"
-#include "shell_client.h"
 #include "virtualdesktops.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -30,7 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KGlobalAccel>
 
 #include <KWayland/Client/surface.h>
-#include <KWayland/Client/shell.h>
 
 #include <QAction>
 #include <QDBusConnection>
@@ -75,7 +74,6 @@ void KeyboardLayoutTest::reconfigureLayouts()
 
 void KeyboardLayoutTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -364,7 +362,7 @@ void KeyboardLayoutTest::testWindowPolicy()
     // create a window
     using namespace KWayland::Client;
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     auto c1 = Test::renderAndWaitForShown(surface.data(), QSize(100, 100), Qt::blue);
     QVERIFY(c1);
 
@@ -380,7 +378,7 @@ void KeyboardLayoutTest::testWindowPolicy()
 
     // create a second window
     QScopedPointer<Surface> surface2(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface2(Test::createShellSurface(surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 100), Qt::red);
     QVERIFY(c2);
     // this should have switched back to English
@@ -411,7 +409,7 @@ void KeyboardLayoutTest::testApplicationPolicy()
     // create a window
     using namespace KWayland::Client;
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     auto c1 = Test::renderAndWaitForShown(surface.data(), QSize(100, 100), Qt::blue);
     QVERIFY(c1);
 
@@ -432,7 +430,7 @@ void KeyboardLayoutTest::testApplicationPolicy()
 
     // create a second window
     QScopedPointer<Surface> surface2(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface2(Test::createShellSurface(surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 100), Qt::red);
     QVERIFY(c2);
     // it is the same application and should not switch the layout
@@ -472,16 +470,16 @@ void KeyboardLayoutTest::testNumLock()
     QTRY_COMPARE(xkb->layoutName(), QStringLiteral("English (US)"));
 
     // by default not set
-    QVERIFY(!xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(!xkb->leds().testFlag(Xkb::LED::NumLock));
     quint32 timestamp = 0;
     kwinApp()->platform()->keyboardKeyPressed(KEY_NUMLOCK, timestamp++);
     kwinApp()->platform()->keyboardKeyReleased(KEY_NUMLOCK, timestamp++);
     // now it should be on
-    QVERIFY(xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(xkb->leds().testFlag(Xkb::LED::NumLock));
     // and back to off
     kwinApp()->platform()->keyboardKeyPressed(KEY_NUMLOCK, timestamp++);
     kwinApp()->platform()->keyboardKeyReleased(KEY_NUMLOCK, timestamp++);
-    QVERIFY(!xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(!xkb->leds().testFlag(Xkb::LED::NumLock));
 
     // let's reconfigure to enable through config
     auto group = kwinApp()->inputConfig()->group("Keyboard");
@@ -489,22 +487,22 @@ void KeyboardLayoutTest::testNumLock()
     group.sync();
     xkb->reconfigure();
     // now it should be on
-    QVERIFY(xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(xkb->leds().testFlag(Xkb::LED::NumLock));
     // pressing should result in it being off
     kwinApp()->platform()->keyboardKeyPressed(KEY_NUMLOCK, timestamp++);
     kwinApp()->platform()->keyboardKeyReleased(KEY_NUMLOCK, timestamp++);
-    QVERIFY(!xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(!xkb->leds().testFlag(Xkb::LED::NumLock));
 
     // pressing again should enable it
     kwinApp()->platform()->keyboardKeyPressed(KEY_NUMLOCK, timestamp++);
     kwinApp()->platform()->keyboardKeyReleased(KEY_NUMLOCK, timestamp++);
-    QVERIFY(xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(xkb->leds().testFlag(Xkb::LED::NumLock));
 
     // now reconfigure to disable on load
     group.writeEntry("NumLock", 1);
     group.sync();
     xkb->reconfigure();
-    QVERIFY(!xkb->modifiers().testFlag(Qt::KeypadModifier));
+    QVERIFY(!xkb->leds().testFlag(Xkb::LED::NumLock));
 }
 
 

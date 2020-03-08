@@ -28,8 +28,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 namespace KWin
 {
 
-class Client;
 class EffectWindowGroupImpl;
+class X11Client;
 
 class Group
 {
@@ -37,13 +37,13 @@ public:
     Group(xcb_window_t leader);
     ~Group();
     xcb_window_t leader() const;
-    const Client* leaderClient() const;
-    Client* leaderClient();
-    const ClientList& members() const;
+    const X11Client *leaderClient() const;
+    X11Client *leaderClient();
+    const QList<X11Client *> &members() const;
     QIcon icon() const;
-    void addMember(Client* member);
-    void removeMember(Client* member);
-    void gotLeader(Client* leader);
+    void addMember(X11Client *member);
+    void removeMember(X11Client *member);
+    void gotLeader(X11Client *leader);
     void lostLeader();
     void updateUserTime(xcb_timestamp_t time);
     xcb_timestamp_t userTime() const;
@@ -52,8 +52,8 @@ public:
     EffectWindowGroupImpl* effectGroup();
 private:
     void startupIdChanged();
-    ClientList _members;
-    Client* leader_client;
+    QList<X11Client *> _members;
+    X11Client *leader_client;
     xcb_window_t leader_wid;
     NETWinInfo* leader_info;
     xcb_timestamp_t user_time;
@@ -66,17 +66,17 @@ inline xcb_window_t Group::leader() const
     return leader_wid;
 }
 
-inline const Client* Group::leaderClient() const
+inline const X11Client *Group::leaderClient() const
 {
     return leader_client;
 }
 
-inline Client* Group::leaderClient()
+inline X11Client *Group::leaderClient()
 {
     return leader_client;
 }
 
-inline const ClientList& Group::members() const
+inline const QList<X11Client *> &Group::members() const
 {
     return _members;
 }

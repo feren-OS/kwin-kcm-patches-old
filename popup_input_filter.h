@@ -29,7 +29,6 @@
 namespace KWin
 {
 class Toplevel;
-class ShellClient;
 
 class PopupInputFilter : public QObject, public InputEventFilter
 {

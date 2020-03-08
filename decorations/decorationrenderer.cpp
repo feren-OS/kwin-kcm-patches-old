@@ -40,12 +40,12 @@ Renderer::Renderer(DecoratedClientImpl *client)
     , m_imageSizesDirty(true)
 {
     auto markImageSizesDirty = [this]{
+        schedule(m_client->client()->rect());
         m_imageSizesDirty = true;
     };
     connect(client->client(), &AbstractClient::screenScaleChanged, this, markImageSizesDirty);
     connect(client->decoration(), &KDecoration2::Decoration::bordersChanged, this, markImageSizesDirty);
-    connect(client->decoratedClient(), &KDecoration2::DecoratedClient::widthChanged, this, markImageSizesDirty);
-    connect(client->decoratedClient(), &KDecoration2::DecoratedClient::heightChanged, this, markImageSizesDirty);
+    connect(client->decoratedClient(), &KDecoration2::DecoratedClient::sizeChanged, this, markImageSizesDirty);
 }
 
 Renderer::~Renderer() = default;
@@ -74,8 +74,13 @@ QImage Renderer::renderToImage(const QRect &geo)
     p.setRenderHint(QPainter::Antialiasing);
     p.setWindow(QRect(geo.topLeft(), geo.size() * dpr));
     p.setClipRect(geo);
-    client()->decoration()->paint(&p, geo);
+    renderToPainter(&p, geo);
     return image;
+}
+
+void Renderer::renderToPainter(QPainter *painter, const QRect &rect)
+{
+    client()->decoration()->paint(painter, rect);
 }
 
 void Renderer::reparent(Deleted *deleted)

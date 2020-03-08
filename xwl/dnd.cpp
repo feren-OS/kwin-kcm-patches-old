@@ -99,7 +99,7 @@ Dnd::Dnd(xcb_atom_t atom, QObject *parent)
                     m_surfaceIface = si;
                     connect(workspace(), &Workspace::clientActivated, this,
                         [this](AbstractClient *ac) {
-                            if (!ac || !ac->inherits("KWin::Client")) {
+                            if (!ac || !ac->inherits("KWin::X11Client")) {
                                 return;
                             }
                             auto *surface = ac->surface();
@@ -142,7 +142,7 @@ void Dnd::doHandleXfixesNotify(xcb_xfixes_selection_notify_event_t *event)
     }
     if (originSurface->client() != waylandServer()->xWaylandConnection()) {
         // focused surface client is not Xwayland - do not allow drag to start
-        // TODO: can we make this stronger (window id comparision)?
+        // TODO: can we make this stronger (window id comparison)?
         return;
     }
     if (!seat->isPointerButtonPressed(Qt::LeftButton)) {

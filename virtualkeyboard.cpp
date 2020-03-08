@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "wayland_server.h"
 #include "workspace.h"
 #include "xkb.h"
-#include "shell_client.h"
+#include "screenlockerwatcher.h"
 
 #include <KWayland/Server/display.h>
 #include <KWayland/Server/seat_interface.h>
@@ -86,6 +86,8 @@ void VirtualKeyboard::init()
         return;
     }
     m_inputWindow->setProperty("__kwin_input_method", true);
+
+    connect(ScreenLockerWatcher::self(), &ScreenLockerWatcher::aboutToLock, this, &VirtualKeyboard::hide);
 
     if (waylandServer()) {
         m_enabled = !input()->hasAlphaNumericKeyboard();
@@ -153,7 +155,7 @@ void VirtualKeyboard::init()
                         }
                     );
 
-                    auto newClient = waylandServer()->findAbstractClient(waylandServer()->seat()->focusedTextInputSurface());
+                    auto newClient = waylandServer()->findClient(waylandServer()->seat()->focusedTextInputSurface());
                     // Reset the old client virtual keybaord geom if necessary
                     // Old and new clients could be the same if focus moves between subsurfaces
                     if (newClient != m_trackedClient) {
@@ -163,7 +165,7 @@ void VirtualKeyboard::init()
                         m_trackedClient = newClient;
                     }
 
-                    m_trackedClient = waylandServer()->findAbstractClient(waylandServer()->seat()->focusedTextInputSurface());
+                    m_trackedClient = waylandServer()->findClient(waylandServer()->seat()->focusedTextInputSurface());
 
                     updateInputPanelState();
                 } else {
@@ -289,6 +291,7 @@ void VirtualKeyboard::hide()
     if (m_inputWindow.isNull()) {
         return;
     }
+    m_inputWindow->hide();
     qApp->inputMethod()->hide();
 }
 

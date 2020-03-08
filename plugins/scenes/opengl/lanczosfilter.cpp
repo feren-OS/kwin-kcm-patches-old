@@ -20,7 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 
 #include "lanczosfilter.h"
-#include "client.h"
+#include "x11client.h"
 #include "deleted.h"
 #include "effects.h"
 #include "screens.h"
@@ -394,18 +394,10 @@ void LanczosFilter::timerEvent(QTimerEvent *event)
         delete m_offscreenTex;
         m_offscreenTarget = nullptr;
         m_offscreenTex = nullptr;
-        foreach (Client *c, Workspace::self()->clientList()) {
-            discardCacheTexture(c->effectWindow());
-        }
-        foreach (Client *c, Workspace::self()->desktopList()) {
-            discardCacheTexture(c->effectWindow());
-        }
-        foreach (Unmanaged *u, Workspace::self()->unmanagedList()) {
-            discardCacheTexture(u->effectWindow());
-        }
-        foreach (Deleted *d, Workspace::self()->deletedList()) {
-            discardCacheTexture(d->effectWindow());
-        }
+
+        workspace()->forEachToplevel([this](Toplevel *toplevel) {
+            discardCacheTexture(toplevel->effectWindow());
+        });
     }
 }
 

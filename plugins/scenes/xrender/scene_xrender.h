@@ -154,7 +154,7 @@ public:
     CompositingType compositingType() const override {
         return XRenderCompositing;
     }
-    qint64 paint(QRegion damage, ToplevelList windows) override;
+    qint64 paint(QRegion damage, QList<Toplevel *> windows) override;
     Scene::EffectFrame *createEffectFrame(EffectFrameImpl *frame) override;
     Shadow *createShadow(Toplevel *toplevel) override;
     void screenGeometryChanged(const QSize &size) override;
@@ -178,6 +178,7 @@ protected:
     void paintGenericScreen(int mask, ScreenPaintData data) override;
     void paintDesktop(int desktop, int mask, const QRegion &region, ScreenPaintData &data) override;
     void paintCursor() override;
+    void paintEffectQuickView(EffectQuickView *w) override;
 private:
     explicit SceneXrender(XRenderBackend *backend, QObject *parent = nullptr);
     static ScreenPaintData screen_paint;
@@ -200,6 +201,8 @@ protected:
 private:
     QRect mapToScreen(int mask, const WindowPaintData &data, const QRect &rect) const;
     QPoint mapToScreen(int mask, const WindowPaintData &data, const QPoint &point) const;
+    QRect bufferToWindowRect(const QRect &rect) const;
+    QRegion bufferToWindowRegion(const QRegion &region) const;
     void prepareTempPixmap();
     void setPictureFilter(xcb_render_picture_t pic, ImageFilterType filter);
     SceneXrender *m_scene;

@@ -47,6 +47,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QSurfaceFormat>
 #include <QVBoxLayout>
 #include <QX11Info>
+#include <QtDBus>
 
 // system
 #ifdef HAVE_UNISTD_H
@@ -272,7 +273,7 @@ void ApplicationX11::performStartup()
 
 bool ApplicationX11::notify(QObject* o, QEvent* e)
 {
-    if (Workspace::self()->workspaceEvent(e))
+    if (e->spontaneous() && Workspace::self()->workspaceEvent(e))
         return true;
     return QApplication::notify(o, e);
 }
@@ -313,6 +314,17 @@ void ApplicationX11::crashChecking()
     QTimer::singleShot(15 * 1000, this, SLOT(resetCrashesCount()));
 }
 
+void ApplicationX11::notifyKSplash()
+{
+    // Tell KSplash that KWin has started
+    QDBusMessage ksplashProgressMessage = QDBusMessage::createMethodCall(QStringLiteral("org.kde.KSplash"),
+                                                                            QStringLiteral("/KSplash"),
+                                                                            QStringLiteral("org.kde.KSplash"),
+                                                                            QStringLiteral("setStage"));
+    ksplashProgressMessage.setArguments(QList<QVariant>() << QStringLiteral("wm"));
+    QDBusConnection::sessionBus().asyncCall(ksplashProgressMessage);
+}
+
 void ApplicationX11::crashHandler(int signal)
 {
     crashes++;
@@ -328,8 +340,7 @@ void ApplicationX11::crashHandler(int signal)
 
 } // namespace
 
-extern "C"
-KWIN_EXPORT int kdemain(int argc, char * argv[])
+int main(int argc, char * argv[])
 {
     KWin::Application::setupMalloc();
     KWin::Application::setupLocalizedString();
@@ -468,9 +479,6 @@ KWIN_EXPORT int kdemain(int argc, char * argv[])
 
     a.start();
 
-    KWin::SessionSaveDoneHelper helper;
-    Q_UNUSED(helper); // The sessionsavedonehelper opens a side channel to the smserver,
-                      // listens for events and talks to it, so it needs to be created.
     return a.exec();
 }
 

@@ -25,7 +25,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "shell_client.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/connection_thread.h>
@@ -35,7 +34,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/registry.h>
 #include <KWayland/Client/plasmashell.h>
 #include <KWayland/Client/pointer.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/seat.h>
 #include <KWayland/Client/server_decoration.h>
 #include <KWayland/Client/shm_pool.h>
@@ -44,7 +42,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/xdgshell.h>
 #include <KWayland/Server/seat_interface.h>
 #include <KWayland/Server/surface_interface.h>
-
 
 namespace KWin
 {
@@ -58,23 +55,13 @@ private Q_SLOTS:
     void initTestCase();
     void init();
     void cleanup();
-    void testSimplePosition_data();
-    void testSimplePosition();
-    void testDecorationPosition_data();
-    void testDecorationPosition();
     void testXdgPopup_data();
     void testXdgPopup();
     void testXdgPopupWithPanel();
-
-private:
-    AbstractClient *showWlShellWindow(const QSize &size, bool decorated = false, KWayland::Client::Surface *parent = nullptr, const QPoint &offset = QPoint());
-
-    KWayland::Client::Surface *surfaceForClient(AbstractClient *c) const;
 };
 
 void TransientPlacementTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -102,128 +89,6 @@ void TransientPlacementTest::init()
 void TransientPlacementTest::cleanup()
 {
     Test::destroyWaylandConnection();
-}
-
-AbstractClient *TransientPlacementTest::showWlShellWindow(const QSize &size, bool decorated, KWayland::Client::Surface *parent, const QPoint &offset)
-{
-    using namespace KWayland::Client;
-#define VERIFY(statement) \
-    if (!QTest::qVerify((statement), #statement, "", __FILE__, __LINE__))\
-        return nullptr;
-#define COMPARE(actual, expected) \
-    if (!QTest::qCompare(actual, expected, #actual, #expected, __FILE__, __LINE__))\
-        return nullptr;
-
-    Surface *surface = Test::createSurface(Test::waylandCompositor());
-    VERIFY(surface);
-    ShellSurface *shellSurface = Test::createShellSurface(surface, surface);
-    VERIFY(shellSurface);
-    if (parent) {
-        shellSurface->setTransient(parent, offset);
-    }
-    if (decorated) {
-        auto deco = Test::waylandServerSideDecoration()->create(surface, surface);
-        QSignalSpy decoSpy(deco, &ServerSideDecoration::modeChanged);
-        VERIFY(decoSpy.isValid());
-        VERIFY(decoSpy.wait());
-        deco->requestMode(ServerSideDecoration::Mode::Server);
-        VERIFY(decoSpy.wait());
-        COMPARE(deco->mode(), ServerSideDecoration::Mode::Server);
-    }
-    // let's render
-    auto c = Test::renderAndWaitForShown(surface, size, Qt::blue);
-
-    VERIFY(c);
-    COMPARE(workspace()->activeClient(), c);
-
-#undef VERIFY
-#undef COMPARE
-
-    return c;
-}
-
-KWayland::Client::Surface *TransientPlacementTest::surfaceForClient(AbstractClient *c) const
-{
-    const auto &surfaces = KWayland::Client::Surface::all();
-    auto it = std::find_if(surfaces.begin(), surfaces.end(), [c] (KWayland::Client::Surface *s) { return s->id() == c->surface()->id(); });
-    if (it != surfaces.end()) {
-        return *it;
-    }
-    return nullptr;
-}
-
-void TransientPlacementTest::testSimplePosition_data()
-{
-    QTest::addColumn<QSize>("parentSize");
-    QTest::addColumn<QPoint>("parentPosition");
-    QTest::addColumn<QSize>("transientSize");
-    QTest::addColumn<QPoint>("transientOffset");
-    QTest::addColumn<QRect>("expectedGeometry");
-
-    QTest::newRow("0/0") << QSize(640, 512) << QPoint(0, 0) << QSize(10, 100) << QPoint(0, 0) << QRect(0, 0, 10, 100);
-    QTest::newRow("bottomRight") << QSize(640, 512) << QPoint(0, 0) << QSize(10, 100) << QPoint(639, 511) << QRect(639, 511, 10, 100);
-    QTest::newRow("offset") << QSize(640, 512) << QPoint(200, 300) << QSize(100, 10) << QPoint(320, 256) << QRect(520, 556, 100, 10);
-    QTest::newRow("right border") << QSize(1280, 1024) << QPoint(0, 0) << QSize(10, 100) << QPoint(1279, 50) << QRect(1270, 50, 10, 100);
-    QTest::newRow("bottom border") << QSize(1280, 1024) << QPoint(0, 0) << QSize(10, 100) << QPoint(512, 1020) << QRect(512, 924, 10, 100);
-    QTest::newRow("bottom right") << QSize(1280, 1024) << QPoint(0, 0) << QSize(10, 100) << QPoint(1279, 1020) << QRect(1270, 924, 10, 100);
-    QTest::newRow("top border") << QSize(1280, 1024) << QPoint(0, -100) << QSize(10, 100) << QPoint(512, 50) << QRect(512, 0, 10, 100);
-    QTest::newRow("left border") << QSize(1280, 1024) << QPoint(-100, 0) << QSize(100, 10) << QPoint(50, 512) << QRect(0, 512, 100, 10);
-    QTest::newRow("top left") << QSize(1280, 1024) << QPoint(-100, -100) << QSize(100, 100) << QPoint(50, 50) << QRect(0, 0, 100, 100);
-    QTest::newRow("bottom left") << QSize(1280, 1024) << QPoint(-100, 0) << QSize(100, 100) << QPoint(50, 1000) << QRect(0, 924, 100, 100);
-}
-
-void TransientPlacementTest::testSimplePosition()
-{
-    // this test verifies that the position of a transient window is taken from the passed position
-    // there are no further constraints like window too large to fit screen, cascading transients, etc
-    // some test cases also verify that the transient fits on the screen
-    QFETCH(QSize, parentSize);
-    AbstractClient *parent = showWlShellWindow(parentSize);
-    QVERIFY(parent->clientPos().isNull());
-    QVERIFY(!parent->isDecorated());
-    QFETCH(QPoint, parentPosition);
-    parent->move(parentPosition);
-    QFETCH(QSize, transientSize);
-    QFETCH(QPoint, transientOffset);
-    AbstractClient *transient = showWlShellWindow(transientSize, false, surfaceForClient(parent), transientOffset);
-    QVERIFY(transient);
-    QVERIFY(!transient->isDecorated());
-    QVERIFY(transient->hasTransientPlacementHint());
-    QTEST(transient->geometry(), "expectedGeometry");
-}
-
-void TransientPlacementTest::testDecorationPosition_data()
-{
-    QTest::addColumn<QSize>("parentSize");
-    QTest::addColumn<QPoint>("parentPosition");
-    QTest::addColumn<QSize>("transientSize");
-    QTest::addColumn<QPoint>("transientOffset");
-    QTest::addColumn<QRect>("expectedGeometry");
-
-    QTest::newRow("0/0") << QSize(640, 512) << QPoint(0, 0) << QSize(10, 100) << QPoint(0, 0) << QRect(0, 0, 10, 100);
-    QTest::newRow("bottomRight") << QSize(640, 512) << QPoint(0, 0) << QSize(10, 100) << QPoint(639, 511) << QRect(639, 511, 10, 100);
-    QTest::newRow("offset") << QSize(640, 512) << QPoint(200, 300) << QSize(100, 10) << QPoint(320, 256) << QRect(520, 556, 100, 10);
-}
-
-void TransientPlacementTest::testDecorationPosition()
-{
-    // this test verifies that a transient window is correctly placed if the parent window has a
-    // server side decoration
-    QFETCH(QSize, parentSize);
-    AbstractClient *parent = showWlShellWindow(parentSize, true);
-    QVERIFY(!parent->clientPos().isNull());
-    QVERIFY(parent->isDecorated());
-    QFETCH(QPoint, parentPosition);
-    parent->move(parentPosition);
-    QFETCH(QSize, transientSize);
-    QFETCH(QPoint, transientOffset);
-    AbstractClient *transient = showWlShellWindow(transientSize, false, surfaceForClient(parent), transientOffset);
-    QVERIFY(transient);
-    QVERIFY(!transient->isDecorated());
-    QVERIFY(transient->hasTransientPlacementHint());
-    QFETCH(QRect, expectedGeometry);
-    expectedGeometry.translate(parent->clientPos());
-    QCOMPARE(transient->geometry(), expectedGeometry);
 }
 
 void TransientPlacementTest::testXdgPopup_data()
@@ -342,6 +207,27 @@ void TransientPlacementTest::testXdgPopup_data()
     positioner.setGravity(Qt::TopEdge);
     positioner.setInitialSize(QSize(300, 200));
     QTest::newRow("constraintFlipRightNoGravity") << QSize(500, 500) << QPoint(700, 80) << positioner << QRect(700 + 50 - 150, 130, 300, 200);
+
+    // ----------------------------------------------------------------
+    // resize
+    positioner.setConstraints(XdgPositioner::Constraint::ResizeX | XdgPositioner::Constraint::ResizeY);
+    positioner.setInitialSize(QSize(200, 200));
+
+    positioner.setAnchorEdge(Qt::TopEdge);
+    positioner.setGravity(Qt::TopEdge);
+    QTest::newRow("resizeTop") << QSize(500, 500) << QPoint(80, 80) << positioner << QRect(80 + 250 - 100, 0, 200, 130);
+
+    positioner.setAnchorEdge(Qt::LeftEdge);
+    positioner.setGravity(Qt::LeftEdge);
+    QTest::newRow("resizeLeft") << QSize(500, 500) << QPoint(80, 80) << positioner << QRect(0, 80 + 250 - 100, 130, 200);
+
+    positioner.setAnchorEdge(Qt::RightEdge);
+    positioner.setGravity(Qt::RightEdge);
+    QTest::newRow("resizeRight") << QSize(500, 500) << QPoint(700, 80) << positioner << QRect(700 + 50 + 400, 80 + 250 - 100, 130, 200);
+
+    positioner.setAnchorEdge(Qt::BottomEdge);
+    positioner.setGravity(Qt::BottomEdge);
+    QTest::newRow("resizeBottom") << QSize(500, 500) << QPoint(80, 500) << positioner << QRect(80 + 250 - 100, 500 + 50 + 400, 200, 74);
 }
 
 void TransientPlacementTest::testXdgPopup()
@@ -365,7 +251,7 @@ void TransientPlacementTest::testXdgPopup()
 
     QVERIFY(!parent->isDecorated());
     parent->move(parentPosition);
-    QCOMPARE(parent->geometry(), QRect(parentPosition, parentSize));
+    QCOMPARE(parent->frameGeometry(), QRect(parentPosition, parentSize));
 
     //create popup
     QFETCH(XdgPositioner, positioner);
@@ -382,12 +268,12 @@ void TransientPlacementTest::testXdgPopup()
     QCOMPARE(configureRequestedSpy.first()[0].value<QRect>(), expectedRelativeGeometry);
     popup->ackConfigure(configureRequestedSpy.first()[1].toUInt());
 
-    auto transient = Test::renderAndWaitForShown(transientSurface, positioner.initialSize(), Qt::red);
+    auto transient = Test::renderAndWaitForShown(transientSurface, expectedRelativeGeometry.size(), Qt::red);
     QVERIFY(transient);
 
     QVERIFY(!transient->isDecorated());
     QVERIFY(transient->hasTransientPlacementHint());
-    QCOMPARE(transient->geometry(), expectedGeometry);
+    QCOMPARE(transient->frameGeometry(), expectedGeometry);
 
     QCOMPARE(configureRequestedSpy.count(), 1); // check that we did not get reconfigured
 }
@@ -412,7 +298,7 @@ void TransientPlacementTest::testXdgPopupWithPanel()
     QVERIFY(dock);
     QCOMPARE(dock->windowType(), NET::Dock);
     QVERIFY(dock->isDock());
-    QCOMPARE(dock->geometry(), QRect(0, screens()->geometry(0).height() - 50, 1280, 50));
+    QCOMPARE(dock->frameGeometry(), QRect(0, screens()->geometry(0).height() - 50, 1280, 50));
     QCOMPARE(dock->hasStrut(), true);
     QVERIFY(workspace()->clientArea(PlacementArea, 0, 1) != workspace()->clientArea(FullScreenArea, 0, 1));
 
@@ -427,7 +313,7 @@ void TransientPlacementTest::testXdgPopupWithPanel()
     QVERIFY(!parent->isDecorated());
     parent->move({0, screens()->geometry(0).height() - 600});
     parent->keepInArea(workspace()->clientArea(PlacementArea, parent));
-    QCOMPARE(parent->geometry(), QRect(0, screens()->geometry(0).height() - 600 - 50, 800, 600));
+    QCOMPARE(parent->frameGeometry(), QRect(0, screens()->geometry(0).height() - 600 - 50, 800, 600));
 
     Surface *transientSurface = Test::createSurface(Test::waylandCompositor());
     QVERIFY(transientSurface);
@@ -440,7 +326,7 @@ void TransientPlacementTest::testXdgPopupWithPanel()
     QVERIFY(!transient->isDecorated());
     QVERIFY(transient->hasTransientPlacementHint());
 
-    QCOMPARE(transient->geometry(), QRect(50, screens()->geometry(0).height() - 200 - 50, 200, 200));
+    QCOMPARE(transient->frameGeometry(), QRect(50, screens()->geometry(0).height() - 200 - 50, 200, 200));
 
     transientShellSurface->deleteLater();
     transientSurface->deleteLater();
@@ -452,11 +338,11 @@ void TransientPlacementTest::testXdgPopupWithPanel()
     parent->setFullScreen(true);
     QVERIFY(fullscreenSpy.wait());
     parentShellSurface->ackConfigure(fullscreenSpy.first().at(2).value<quint32>());
-    QSignalSpy geometryShapeChangedSpy{parent, &ShellClient::geometryShapeChanged};
-    QVERIFY(geometryShapeChangedSpy.isValid());
+    QSignalSpy frameGeometryChangedSpy{parent, &AbstractClient::frameGeometryChanged};
+    QVERIFY(frameGeometryChangedSpy.isValid());
     Test::render(parentSurface, fullscreenSpy.first().at(0).toSize(), Qt::red);
-    QVERIFY(geometryShapeChangedSpy.wait());
-    QCOMPARE(parent->geometry(), screens()->geometry(0));
+    QVERIFY(frameGeometryChangedSpy.wait());
+    QCOMPARE(parent->frameGeometry(), screens()->geometry(0));
     QVERIFY(parent->isFullScreen());
 
     // another transient, with same hints as before from bottom of window
@@ -471,7 +357,7 @@ void TransientPlacementTest::testXdgPopupWithPanel()
     QVERIFY(!transient->isDecorated());
     QVERIFY(transient->hasTransientPlacementHint());
 
-    QCOMPARE(transient->geometry(), QRect(50, screens()->geometry(0).height() - 200, 200, 200));
+    QCOMPARE(transient->frameGeometry(), QRect(50, screens()->geometry(0).height() - 200, 200, 200));
 }
 
 }

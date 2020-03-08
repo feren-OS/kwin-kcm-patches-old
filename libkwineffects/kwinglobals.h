@@ -36,7 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 namespace KWin
 {
-
+KWIN_EXPORT Q_NAMESPACE
 
 enum CompositingType {
     NoCompositing = 0,
@@ -137,6 +137,17 @@ enum class SwipeDirection {
     Up,
     Right
 };
+
+/**
+ * Represents the state of the session running outside kwin
+ * Under Plasma this is managed by ksmserver
+ */
+enum class SessionState {
+    Normal,
+    Saving,
+    Quitting
+};
+Q_ENUM_NS(SessionState)
 
 inline
 KWIN_EXPORT xcb_connection_t *connection()

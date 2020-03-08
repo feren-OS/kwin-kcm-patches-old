@@ -19,18 +19,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
 #include "platform.h"
-#include "client.h"
+#include "x11client.h"
 #include "cursor.h"
 #include "screenedge.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "shell_client.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/plasmawindowmanagement.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
 #include <KWayland/Server/seat_interface.h>
 //screenlocker
@@ -65,12 +63,10 @@ private Q_SLOTS:
 private:
     PlasmaWindowManagement *m_windowManagement = nullptr;
     KWayland::Client::Compositor *m_compositor = nullptr;
-    Shell *m_shell = nullptr;
 };
 
 void PlasmaWindowTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -93,7 +89,6 @@ void PlasmaWindowTest::init()
     QVERIFY(Test::setupWaylandConnection(Test::AdditionalWaylandInterface::WindowManagement));
     m_windowManagement = Test::waylandWindowManagement();
     m_compositor = Test::waylandCompositor();
-    m_shell = Test::waylandShell();
 
     screens()->setCurrent(0);
     Cursor::setPos(QPoint(640, 512));
@@ -140,7 +135,7 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.first().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(client);
     QCOMPARE(client->window(), w);
     QVERIFY(client->isDecorated());
@@ -161,7 +156,7 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
     QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
     QCOMPARE(m_windowManagement->windows().count(), 1);
     auto pw = m_windowManagement->windows().first();
-    QCOMPARE(pw->geometry(), client->geometry());
+    QCOMPARE(pw->geometry(), client->frameGeometry());
     QSignalSpy geometryChangedSpy(pw, &PlasmaWindow::geometryChanged);
     QVERIFY(geometryChangedSpy.isValid());
 
@@ -171,18 +166,18 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
     QVERIFY(destroyedSpy.isValid());
 
     // now shade the window
-    const QRect geoBeforeShade = client->geometry();
+    const QRect geoBeforeShade = client->frameGeometry();
     QVERIFY(geoBeforeShade.isValid());
     QVERIFY(!geoBeforeShade.isEmpty());
     workspace()->slotWindowShade();
     QVERIFY(client->isShade());
-    QVERIFY(client->geometry() != geoBeforeShade);
+    QVERIFY(client->frameGeometry() != geoBeforeShade);
     QVERIFY(geometryChangedSpy.wait());
-    QCOMPARE(pw->geometry(), client->geometry());
+    QCOMPARE(pw->geometry(), client->frameGeometry());
     // and unshade again
     workspace()->slotWindowShade();
     QVERIFY(!client->isShade());
-    QCOMPARE(client->geometry(), geoBeforeShade);
+    QCOMPARE(client->frameGeometry(), geoBeforeShade);
     QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(pw->geometry(), geoBeforeShade);
 
@@ -190,7 +185,7 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
     xcb_unmap_window(c.data(), w);
     xcb_flush(c.data());
 
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     QVERIFY(windowClosedSpy.wait());
     xcb_destroy_window(c.data(), w);
@@ -247,57 +242,28 @@ void PlasmaWindowTest::testPopupWindowNoPlasmaWindow()
 
     // first create the parent window
     QScopedPointer<Surface> parentSurface(Test::createSurface());
-    QScopedPointer<ShellSurface> parentShellSurface(Test::createShellSurface(parentSurface.data()));
-    // map that window
-    Test::render(parentSurface.data(), QSize(100, 50), Qt::blue);
-    // this should create a plasma window
+    QScopedPointer<XdgShellSurface> parentShellSurface(Test::createXdgShellStableSurface(parentSurface.data()));
+    AbstractClient *parentClient = Test::renderAndWaitForShown(parentSurface.data(), QSize(100, 50), Qt::blue);
+    QVERIFY(parentClient);
     QVERIFY(plasmaWindowCreatedSpy.wait());
+    QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
 
     // now let's create a popup window for it
+    XdgPositioner positioner(QSize(10, 10), QRect(0, 0, 10, 10));
+    positioner.setAnchorEdge(Qt::BottomEdge | Qt::RightEdge);
+    positioner.setGravity(Qt::BottomEdge | Qt::RightEdge);
     QScopedPointer<Surface> popupSurface(Test::createSurface());
-    QScopedPointer<ShellSurface> popupShellSurface(Test::createShellSurface(popupSurface.data()));
-    popupShellSurface->setTransient(parentSurface.data(), QPoint(0, 0), ShellSurface::TransientFlag::NoFocus);
-    // let's map it
-    Test::render(popupSurface.data(), QSize(100, 50), Qt::blue);
-
-    // this should not create a plasma window
-    QVERIFY(!plasmaWindowCreatedSpy.wait());
-
-    // now the same with an already mapped surface when we create the shell surface
-    QScopedPointer<Surface> popup2Surface(Test::createSurface());
-    Test::render(popup2Surface.data(), QSize(100, 50), Qt::blue);
-    QScopedPointer<ShellSurface> popup2ShellSurface(Test::createShellSurface(popup2Surface.data()));
-    popup2ShellSurface->setTransient(popupSurface.data(), QPoint(0, 0), ShellSurface::TransientFlag::NoFocus);
-
-    // this should not create a plasma window
-    QEXPECT_FAIL("", "The call to setTransient comes to late the window is already mapped then", Continue);
-    QVERIFY(!plasmaWindowCreatedSpy.wait());
+    QScopedPointer<XdgShellPopup> popupShellSurface(Test::createXdgShellStablePopup(popupSurface.data(), parentShellSurface.data(), positioner));
+    AbstractClient *popupClient = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::blue);
+    QVERIFY(popupClient);
+    QVERIFY(!plasmaWindowCreatedSpy.wait(100));
+    QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
 
     // let's destroy the windows
-    QCOMPARE(waylandServer()->clients().count(), 3);
-    QSignalSpy destroyed1Spy(waylandServer()->clients().last(), &QObject::destroyed);
-    QVERIFY(destroyed1Spy.isValid());
-    popup2Surface->attachBuffer(Buffer::Ptr());
-    popup2Surface->commit(Surface::CommitFlag::None);
-    popup2ShellSurface.reset();
-    popup2Surface.reset();
-    QVERIFY(destroyed1Spy.wait());
-    QCOMPARE(waylandServer()->clients().count(), 2);
-    QSignalSpy destroyed2Spy(waylandServer()->clients().last(), &QObject::destroyed);
-    QVERIFY(destroyed2Spy.isValid());
-    popupSurface->attachBuffer(Buffer::Ptr());
-    popupSurface->commit(Surface::CommitFlag::None);
     popupShellSurface.reset();
-    popupSurface.reset();
-    QVERIFY(destroyed2Spy.wait());
-    QCOMPARE(waylandServer()->clients().count(), 1);
-    QSignalSpy destroyed3Spy(waylandServer()->clients().last(), &QObject::destroyed);
-    QVERIFY(destroyed3Spy.isValid());
-    parentSurface->attachBuffer(Buffer::Ptr());
-    parentSurface->commit(Surface::CommitFlag::None);
+    QVERIFY(Test::waitForWindowDestroyed(popupClient));
     parentShellSurface.reset();
-    parentSurface.reset();
-    QVERIFY(destroyed3Spy.wait());
+    QVERIFY(Test::waitForWindowDestroyed(parentClient));
 }
 
 void PlasmaWindowTest::testLockScreenNoPlasmaWindow()
@@ -306,13 +272,13 @@ void PlasmaWindowTest::testLockScreenNoPlasmaWindow()
     QSignalSpy plasmaWindowCreatedSpy(m_windowManagement, &PlasmaWindowManagement::windowCreated);
     QVERIFY(plasmaWindowCreatedSpy.isValid());
 
-    // this time we use a QSignalSpy on ShellClient as it'a a little bit more complex setup
+    // this time we use a QSignalSpy on XdgShellClient as it'a a little bit more complex setup
     QSignalSpy clientAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
     QVERIFY(clientAddedSpy.isValid());
     // lock
     ScreenLocker::KSldApp::self()->lock(ScreenLocker::EstablishLock::Immediate);
     QVERIFY(clientAddedSpy.wait());
-    QVERIFY(clientAddedSpy.first().first().value<ShellClient*>()->isLockScreen());
+    QVERIFY(clientAddedSpy.first().first().value<AbstractClient *>()->isLockScreen());
     // should not be sent to the client
     QVERIFY(plasmaWindowCreatedSpy.isEmpty());
     QVERIFY(!plasmaWindowCreatedSpy.wait());
@@ -341,7 +307,7 @@ void PlasmaWindowTest::testDestroyedButNotUnmapped()
 
     // first create the parent window
     QScopedPointer<Surface> parentSurface(Test::createSurface());
-    QScopedPointer<ShellSurface> parentShellSurface(Test::createShellSurface(parentSurface.data()));
+    QScopedPointer<XdgShellSurface> parentShellSurface(Test::createXdgShellStableSurface(parentSurface.data()));
     // map that window
     Test::render(parentSurface.data(), QSize(100, 50), Qt::blue);
     // this should create a plasma window

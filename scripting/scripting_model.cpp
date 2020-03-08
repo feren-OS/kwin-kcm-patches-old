@@ -22,10 +22,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef KWIN_BUILD_ACTIVITIES
 #include "activities.h"
 #endif
-#include "client.h"
+#include "x11client.h"
 #include "screens.h"
 #include "workspace.h"
-#include "shell_client.h"
 #include "wayland_server.h"
 
 namespace KWin {
@@ -202,9 +201,9 @@ void ClientLevel::removeClient(AbstractClient *client)
 
 void ClientLevel::init()
 {
-    const ClientList &clients = Workspace::self()->clientList();
-    for (ClientList::const_iterator it = clients.begin(); it != clients.end(); ++it) {
-        Client *client = *it;
+    const QList<X11Client *> &clients = Workspace::self()->clientList();
+    for (auto it = clients.begin(); it != clients.end(); ++it) {
+        X11Client *client = *it;
         setupClientConnections(client);
         if (!exclude(client) && shouldAdd(client)) {
             m_clients.insert(nextId(), client);
@@ -214,8 +213,8 @@ void ClientLevel::init()
 
 void ClientLevel::reInit()
 {
-    const ClientList &clients = Workspace::self()->clientList();
-    for (ClientList::const_iterator it = clients.begin(); it != clients.end(); ++it) {
+    const QList<X11Client *> &clients = Workspace::self()->clientList();
+    for (auto it = clients.begin(); it != clients.end(); ++it) {
         checkClient((*it));
     }
     if (waylandServer()) {
@@ -896,7 +895,7 @@ bool ClientFilterModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourc
         // we do not filter out screen, desktop and activity
         return true;
     }
-    Client *client = qvariant_cast<KWin::Client *>(data);
+    X11Client *client = qvariant_cast<KWin::X11Client *>(data);
     if (!client) {
         return false;
     }

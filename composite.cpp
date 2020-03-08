@@ -20,16 +20,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "composite.h"
 
 #include "dbusinterface.h"
-#include "client.h"
+#include "x11client.h"
 #include "decorations/decoratedclient.h"
 #include "deleted.h"
 #include "effects.h"
+#include "internal_client.h"
 #include "overlaywindow.h"
 #include "platform.h"
 #include "scene.h"
 #include "screens.h"
 #include "shadow.h"
-#include "shell_client.h"
 #include "unmanaged.h"
 #include "useractions.h"
 #include "utils.h"
@@ -130,6 +130,7 @@ Compositor::Compositor(QObject* workspace)
     , m_composeAtSwapCompletion(false)
 {
     connect(options, &Options::configChanged, this, &Compositor::configChanged);
+    connect(options, &Options::animationSpeedChanged, this, &Compositor::configChanged);
 
     m_monotonicClock.start();
 
@@ -346,28 +347,27 @@ void Compositor::startupWithWorkspace()
     connect(Workspace::self(), &Workspace::deletedRemoved, m_scene, &Scene::removeToplevel);
     connect(effects, &EffectsHandler::screenGeometryChanged, this, &Compositor::addRepaintFull);
 
-    for (Client *c : Workspace::self()->clientList()) {
+    for (X11Client *c : Workspace::self()->clientList()) {
         c->setupCompositing();
-        c->getShadow();
+        c->updateShadow();
     }
-    for (Client *c : Workspace::self()->desktopList()) {
+    for (X11Client *c : Workspace::self()->desktopList()) {
         c->setupCompositing();
     }
     for (Unmanaged *c : Workspace::self()->unmanagedList()) {
         c->setupCompositing();
-        c->getShadow();
+        c->updateShadow();
+    }
+    for (InternalClient *client : workspace()->internalClients()) {
+        client->setupCompositing();
+        client->updateShadow();
     }
 
     if (auto *server = waylandServer()) {
         const auto clients = server->clients();
-        for (ShellClient *c : clients) {
+        for (AbstractClient *c : clients) {
             c->setupCompositing();
-            c->getShadow();
-        }
-        const auto internalClients = server->internalClients();
-        for (ShellClient *c : internalClients) {
-            c->setupCompositing();
-            c->getShadow();
+            c->updateShadow();
         }
     }
 
@@ -406,23 +406,29 @@ void Compositor::stop()
     effects = nullptr;
 
     if (Workspace::self()) {
-        for (Client *c : Workspace::self()->clientList()) {
+        for (X11Client *c : Workspace::self()->clientList()) {
             m_scene->removeToplevel(c);
         }
-        for (Client *c : Workspace::self()->desktopList()) {
+        for (X11Client *c : Workspace::self()->desktopList()) {
             m_scene->removeToplevel(c);
         }
         for (Unmanaged *c : Workspace::self()->unmanagedList()) {
             m_scene->removeToplevel(c);
         }
-        for (Client *c : Workspace::self()->clientList()) {
+        for (InternalClient *client : workspace()->internalClients()) {
+            m_scene->removeToplevel(client);
+        }
+        for (X11Client *c : Workspace::self()->clientList()) {
             c->finishCompositing();
         }
-        for (Client *c : Workspace::self()->desktopList()) {
+        for (X11Client *c : Workspace::self()->desktopList()) {
             c->finishCompositing();
         }
         for (Unmanaged *c : Workspace::self()->unmanagedList()) {
             c->finishCompositing();
+        }
+        for (InternalClient *client : workspace()->internalClients()) {
+            client->finishCompositing();
         }
         if (auto *con = kwinApp()->x11Connection()) {
             xcb_composite_unredirect_subwindows(con, kwinApp()->x11RootWindow(),
@@ -434,16 +440,10 @@ void Compositor::stop()
     }
 
     if (waylandServer()) {
-        for (ShellClient *c : waylandServer()->clients()) {
+        for (AbstractClient *c : waylandServer()->clients()) {
             m_scene->removeToplevel(c);
         }
-        for (ShellClient *c : waylandServer()->internalClients()) {
-            m_scene->removeToplevel(c);
-        }
-        for (ShellClient *c : waylandServer()->clients()) {
-            c->finishCompositing();
-        }
-        for (ShellClient *c : waylandServer()->internalClients()) {
+        for (AbstractClient *c : waylandServer()->clients()) {
             c->finishCompositing();
         }
     }
@@ -615,8 +615,8 @@ void Compositor::performCompositing()
     }
 
     // Create a list of all windows in the stacking order
-    ToplevelList windows = Workspace::self()->xStackingOrder();
-    ToplevelList damaged;
+    QList<Toplevel *> windows = Workspace::self()->xStackingOrder();
+    QList<Toplevel *> damaged;
 
     // Reset the damage state of each window and fetch the damage region
     // without waiting for a reply
@@ -748,19 +748,19 @@ bool Compositor::windowRepaintsPending() const
     }
     if (auto *server = waylandServer()) {
         const auto &clients = server->clients();
-        auto test = [](ShellClient *c) {
+        auto test = [](AbstractClient *c) {
             return c->readyForPainting() && !c->repaints().isEmpty();
         };
         if (std::any_of(clients.begin(), clients.end(), test)) {
             return true;
         }
-        const auto &internalClients = server->internalClients();
-        auto internalTest = [](ShellClient *c) {
-            return c->isShown(true) && !c->repaints().isEmpty();
-        };
-        if (std::any_of(internalClients.begin(), internalClients.end(), internalTest)) {
-            return true;
-        }
+    }
+    const auto &internalClients = workspace()->internalClients();
+    auto internalTest = [] (InternalClient *client) {
+        return client->isShown(true) && !client->repaints().isEmpty();
+    };
+    if (std::any_of(internalClients.begin(), internalClients.end(), internalTest)) {
+        return true;
     }
     return false;
 }
@@ -1007,7 +1007,7 @@ int X11Compositor::refreshRate() const
     return m_xrrRefreshRate;
 }
 
-void X11Compositor::updateClientCompositeBlocking(Client *c)
+void X11Compositor::updateClientCompositeBlocking(X11Client *c)
 {
     if (c) {
         if (c->isBlockingCompositing()) {
@@ -1022,7 +1022,7 @@ void X11Compositor::updateClientCompositeBlocking(Client *c)
         // If !c we just check if we can resume in case a blocking client was lost.
         bool shouldResume = true;
 
-        for (ClientList::ConstIterator it = Workspace::self()->clientList().constBegin();
+        for (auto it = Workspace::self()->clientList().constBegin();
              it != Workspace::self()->clientList().constEnd(); ++it) {
             if ((*it)->isBlockingCompositing()) {
                 shouldResume = false;

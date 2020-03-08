@@ -34,7 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef KWIN_BUILD_ACTIVITIES
 #include "activities.h"
 #endif
-#include "client.h"
+#include "x11client.h"
 #include "effects.h"
 #include "input.h"
 #include "keyboard_input.h"
@@ -283,7 +283,7 @@ QWeakPointer<TabBoxClient> TabBoxHandlerImpl::clientToAddToList(TabBoxClient* cl
 
 TabBoxClientList TabBoxHandlerImpl::stackingOrder() const
 {
-    ToplevelList stacking = Workspace::self()->stackingOrder();
+    QList<Toplevel *> stacking = Workspace::self()->stackingOrder();
     TabBoxClientList ret;
     foreach (Toplevel *toplevel, stacking) {
         if (auto client = qobject_cast<AbstractClient*>(toplevel)) {
@@ -318,7 +318,7 @@ void TabBoxHandlerImpl::elevateClient(TabBoxClient *c, QWindow *tabbox, bool b) 
 
 void TabBoxHandlerImpl::shadeClient(TabBoxClient *c, bool b) const
 {
-    Client *cl = dynamic_cast<Client*>(static_cast<TabBoxClientImpl*>(c)->client());
+    X11Client *cl = dynamic_cast<X11Client *>(static_cast<TabBoxClientImpl*>(c)->client());
     if (!cl) {
         // shading is X11 specific
         return;
@@ -355,7 +355,7 @@ void TabBoxHandlerImpl::highlightWindows(TabBoxClient *window, QWindow *controll
     if (window) {
         windows << static_cast<TabBoxClientImpl*>(window)->client()->effectWindow();
     }
-    if (auto t = Workspace::self()->findToplevel(controller)) {
+    if (Toplevel *t = workspace()->findInternal(controller)) {
         windows << t->effectWindow();
     }
     static_cast<EffectsHandlerImpl*>(effects)->highlightWindows(windows);
@@ -394,11 +394,6 @@ QIcon TabBoxClientImpl::icon() const
         return QIcon::fromTheme(QStringLiteral("user-desktop"));
     }
     return m_client->icon();
-}
-
-WId TabBoxClientImpl::window() const
-{
-    return m_client->windowId();
 }
 
 bool TabBoxClientImpl::isMinimized() const

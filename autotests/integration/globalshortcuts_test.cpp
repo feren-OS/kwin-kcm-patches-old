@@ -18,17 +18,16 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
-#include "client.h"
+#include "x11client.h"
 #include "cursor.h"
 #include "input.h"
+#include "internal_client.h"
 #include "platform.h"
 #include "screens.h"
-#include "shell_client.h"
 #include "useractions.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
 #include <KWayland/Server/seat_interface.h>
 
@@ -63,8 +62,8 @@ private Q_SLOTS:
 
 void GlobalShortcutsTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
-    qRegisterMetaType<KWin::AbstractClient*>();
+    qRegisterMetaType<KWin::AbstractClient *>();
+    qRegisterMetaType<KWin::InternalClient *>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
@@ -164,7 +163,7 @@ void GlobalShortcutsTest::testUserActionsMenu()
 
     // first create a window
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     auto c = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QVERIFY(c->isActive());
@@ -261,7 +260,7 @@ void GlobalShortcutsTest::testX11ClientShortcut()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.last().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
     QVERIFY(client);
 
     QCOMPARE(workspace()->activeClient(), client);
@@ -292,7 +291,7 @@ void GlobalShortcutsTest::testX11ClientShortcut()
     kwinApp()->platform()->keyboardKeyReleased(KEY_LEFTMETA, timestamp++);
 
     // destroy window again
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     xcb_unmap_window(c.data(), w);
     xcb_destroy_window(c.data(), w);
@@ -303,7 +302,7 @@ void GlobalShortcutsTest::testX11ClientShortcut()
 void GlobalShortcutsTest::testWaylandClientShortcut()
 {
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
 
     QCOMPARE(workspace()->activeClient(), client);
@@ -339,18 +338,18 @@ void GlobalShortcutsTest::testWaylandClientShortcut()
 void GlobalShortcutsTest::testSetupWindowShortcut()
 {
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
 
     QCOMPARE(workspace()->activeClient(), client);
     QVERIFY(client->isActive());
     QCOMPARE(client->shortcut(), QKeySequence());
 
-    QSignalSpy shortcutDialogAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
+    QSignalSpy shortcutDialogAddedSpy(workspace(), &Workspace::internalClientAdded);
     QVERIFY(shortcutDialogAddedSpy.isValid());
     workspace()->slotSetupWindowShortcut();
     QTRY_COMPARE(shortcutDialogAddedSpy.count(), 1);
-    auto dialog = shortcutDialogAddedSpy.first().first().value<ShellClient*>();
+    auto dialog = shortcutDialogAddedSpy.first().first().value<InternalClient *>();
     QVERIFY(dialog);
     QVERIFY(dialog->isInternal());
     auto sequenceEdit = workspace()->shortcutDialog()->findChild<QKeySequenceEdit*>();

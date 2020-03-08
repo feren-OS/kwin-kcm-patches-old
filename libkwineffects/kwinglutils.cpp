@@ -61,7 +61,7 @@ static QList<QByteArray> glExtensions;
 
 // Functions
 
-void initGL(std::function<resolveFuncPtr(const char*)> resolveFunction)
+void initGL(const std::function<resolveFuncPtr(const char*)> &resolveFunction)
 {
     // Get list of supported OpenGL extensions
     if (hasGLVersion(3, 0)) {
@@ -209,7 +209,7 @@ bool GLShader::link()
     glGetProgramiv(mProgram, GL_LINK_STATUS, &status);
 
     if (status == 0) {
-        qCCritical(LIBKWINGLUTILS) << "Failed to link shader:" << endl << log;
+        qCCritical(LIBKWINGLUTILS) << "Failed to link shader:" << "\n" << log;
         mValid = false;
     } else if (length > 0) {
         qCDebug(LIBKWINGLUTILS) << "Shader link log:" << log;
@@ -261,7 +261,7 @@ bool GLShader::compile(GLuint program, GLenum shaderType, const QByteArray &sour
 
     if (status == 0) {
         const char *typeName = (shaderType == GL_VERTEX_SHADER ? "vertex" : "fragment");
-        qCCritical(LIBKWINGLUTILS) << "Failed to compile" << typeName << "shader:" << endl << log;
+        qCCritical(LIBKWINGLUTILS) << "Failed to compile" << typeName << "shader:" << "\n" << log;
     } else if (length > 0)
         qCDebug(LIBKWINGLUTILS) << "Shader compile log:" << log;
 
@@ -347,6 +347,7 @@ void GLShader::resolveLocations()
     mFloatLocation[Saturation]    = uniformLocation("saturation");
 
     mColorLocation[Color] = uniformLocation("geometryColor");
+    mVec4Location[TextureClamp] = uniformLocation("textureClamp");
 
     mLocationsResolved = true;
 }
@@ -877,14 +878,24 @@ QByteArray ShaderManager::generateFragmentSource(ShaderTraits traits) const
     } else if (traits & ShaderTrait::UniformColor)
         stream << "uniform vec4 geometryColor;\n";
 
+    if (traits & ShaderTrait::ClampTexture) {
+        stream << "uniform vec4 textureClamp;\n";
+    }
+
     if (output != QByteArrayLiteral("gl_FragColor"))
         stream << "\nout vec4 " << output << ";\n";
 
     stream << "\nvoid main(void)\n{\n";
     if (traits & ShaderTrait::MapTexture) {
-        if (traits & (ShaderTrait::Modulate | ShaderTrait::AdjustSaturation)) {
-            stream << "    vec4 texel = " << textureLookup << "(sampler, texcoord0);\n";
+        stream << "vec2 texcoordC = texcoord0;\n";
 
+        if (traits & ShaderTrait::ClampTexture) {
+            stream << "texcoordC.x = clamp(texcoordC.x, textureClamp.x, textureClamp.z);\n";
+            stream << "texcoordC.y = clamp(texcoordC.y, textureClamp.y, textureClamp.w);\n";
+        }
+
+        if (traits & (ShaderTrait::Modulate | ShaderTrait::AdjustSaturation)) {
+            stream << "    vec4 texel = " << textureLookup << "(sampler, texcoordC);\n";
             if (traits & ShaderTrait::Modulate)
                 stream << "    texel *= modulation;\n";
             if (traits & ShaderTrait::AdjustSaturation)
@@ -892,7 +903,7 @@ QByteArray ShaderManager::generateFragmentSource(ShaderTraits traits) const
 
             stream << "    " << output << " = texel;\n";
         } else {
-            stream << "    " << output << " = " << textureLookup << "(sampler, texcoord0);\n";
+            stream << "    " << output << " = " << textureLookup << "(sampler, texcoordC);\n";
         }
     } else if (traits & ShaderTrait::UniformColor)
         stream << "    " << output << " = geometryColor;\n";
@@ -1050,6 +1061,7 @@ QSize GLRenderTarget::s_virtualScreenSize;
 QRect GLRenderTarget::s_virtualScreenGeometry;
 qreal GLRenderTarget::s_virtualScreenScale = 1.0;
 GLint GLRenderTarget::s_virtualScreenViewport[4];
+GLuint GLRenderTarget::s_kwinFramebuffer = 0;
 
 void GLRenderTarget::initStatic()
 {
@@ -1174,7 +1186,7 @@ bool GLRenderTarget::disable()
         return false;
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, s_kwinFramebuffer);
     mTexture.setDirty();
 
     return true;
@@ -1245,7 +1257,7 @@ void GLRenderTarget::initFBO()
 #if DEBUG_GLRENDERTARGET
     if ((err = glGetError()) != GL_NO_ERROR) {
         qCCritical(LIBKWINGLUTILS) << "glFramebufferTexture2D failed: " << formatGLError(err);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_kwinFramebuffer);
         glDeleteFramebuffers(1, &mFramebuffer);
         return;
     }
@@ -1253,7 +1265,7 @@ void GLRenderTarget::initFBO()
 
     const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, s_kwinFramebuffer);
 
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         // We have an incomplete framebuffer, consider it invalid
@@ -1280,7 +1292,7 @@ void GLRenderTarget::blitFromFramebuffer(const QRect &source, const QRect &desti
 
     GLRenderTarget::pushRenderTarget(this);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFramebuffer);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, s_kwinFramebuffer);
     const QRect s = source.isNull() ? s_virtualScreenGeometry : source;
     const QRect d = destination.isNull() ? QRect(0, 0, mTexture.width(), mTexture.height()) : destination;
 
@@ -1515,7 +1527,7 @@ public:
     IndexBuffer();
     ~IndexBuffer();
 
-    void accomodate(int count);
+    void accommodate(int count);
     void bind();
 
 private:
@@ -1541,7 +1553,7 @@ IndexBuffer::~IndexBuffer()
     glDeleteBuffers(1, &m_buffer);
 }
 
-void IndexBuffer::accomodate(int count)
+void IndexBuffer::accommodate(int count)
 {
     // Check if we need to grow the buffer.
     if (count <= m_count)
@@ -2162,7 +2174,7 @@ void GLVertexBuffer::draw(const QRegion &region, GLenum primitiveMode, int first
             indexBuffer = new IndexBuffer;
 
         indexBuffer->bind();
-        indexBuffer->accomodate(count / 4);
+        indexBuffer->accommodate(count / 4);
 
         count = count * 6 / 4;
 

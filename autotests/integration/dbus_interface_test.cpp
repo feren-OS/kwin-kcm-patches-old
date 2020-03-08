@@ -21,20 +21,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "atoms.h"
-#include "client.h"
+#include "x11client.h"
 #include "deleted.h"
 #include "platform.h"
 #include "rules.h"
 #include "screens.h"
-#include "shell_client.h"
 #include "virtualdesktops.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
-#include <KWayland/Client/xdgshell.h>
 
 #include <QDBusArgument>
 #include <QDBusConnection>
@@ -63,15 +61,14 @@ private Q_SLOTS:
     void cleanup();
 
     void testGetWindowInfoInvalidUuid();
-    void testGetWindowInfoShellClient_data();
-    void testGetWindowInfoShellClient();
+    void testGetWindowInfoXdgShellClient_data();
+    void testGetWindowInfoXdgShellClient();
     void testGetWindowInfoX11Client();
 };
 
 void TestDbusInterface::initTestCase()
 {
     qRegisterMetaType<KWin::Deleted*>();
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
 
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
@@ -114,34 +111,30 @@ void TestDbusInterface::testGetWindowInfoInvalidUuid()
     QVERIFY(windowData.empty());
 }
 
-void TestDbusInterface::testGetWindowInfoShellClient_data()
+void TestDbusInterface::testGetWindowInfoXdgShellClient_data()
 {
-    QTest::addColumn<Test::ShellSurfaceType>("type");
+    QTest::addColumn<Test::XdgShellSurfaceType>("type");
 
-    QTest::newRow("wlShell") << Test::ShellSurfaceType::WlShell;
-    QTest::newRow("xdgShellV5") << Test::ShellSurfaceType::XdgShellV5;
-    QTest::newRow("xdgShellV6") << Test::ShellSurfaceType::XdgShellV6;
-    QTest::newRow("xdgWmBase") << Test::ShellSurfaceType::XdgShellStable;
+    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
+    QTest::newRow("xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
 }
 
-void TestDbusInterface::testGetWindowInfoShellClient()
+void TestDbusInterface::testGetWindowInfoXdgShellClient()
 {
     QSignalSpy clientAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
     QVERIFY(clientAddedSpy.isValid());
 
     QScopedPointer<Surface> surface(Test::createSurface());
-    QFETCH(Test::ShellSurfaceType, type);
-    QScopedPointer<QObject> shellSurface(Test::createShellSurface(type, surface.data()));
-    if (type != Test::ShellSurfaceType::WlShell) {
-        qobject_cast<XdgShellSurface*>(shellSurface.data())->setAppId(QByteArrayLiteral("org.kde.foo"));
-        qobject_cast<XdgShellSurface*>(shellSurface.data())->setTitle(QStringLiteral("Test window"));
-    }
+    QFETCH(Test::XdgShellSurfaceType, type);
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
+    shellSurface->setAppId(QByteArrayLiteral("org.kde.foo"));
+    shellSurface->setTitle(QStringLiteral("Test window"));
 
     // now let's render
     Test::render(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(clientAddedSpy.isEmpty());
     QVERIFY(clientAddedSpy.wait());
-    auto client = clientAddedSpy.first().first().value<ShellClient*>();
+    auto client = clientAddedSpy.first().first().value<AbstractClient *>();
     QVERIFY(client);
 
     // let's get the window info
@@ -173,15 +166,9 @@ void TestDbusInterface::testGetWindowInfoShellClient()
     QCOMPARE(windowData.value(QStringLiteral("localhost")).toBool(), true);
     QCOMPARE(windowData.value(QStringLiteral("role")).toString(), QString());
     QCOMPARE(windowData.value(QStringLiteral("resourceName")).toString(), QStringLiteral("testDbusInterface"));
-    if (type == Test::ShellSurfaceType::WlShell) {
-        QCOMPARE(windowData.value(QStringLiteral("resourceClass")).toString(), QString());
-        QCOMPARE(windowData.value(QStringLiteral("desktopFile")).toString(), QString());
-        QCOMPARE(windowData.value(QStringLiteral("caption")).toString(), QString());
-    } else {
-        QCOMPARE(windowData.value(QStringLiteral("resourceClass")).toString(), QStringLiteral("org.kde.foo"));
-        QCOMPARE(windowData.value(QStringLiteral("desktopFile")).toString(), QStringLiteral("org.kde.foo"));
-        QCOMPARE(windowData.value(QStringLiteral("caption")).toString(), QStringLiteral("Test window"));
-    }
+    QCOMPARE(windowData.value(QStringLiteral("resourceClass")).toString(), QStringLiteral("org.kde.foo"));
+    QCOMPARE(windowData.value(QStringLiteral("desktopFile")).toString(), QStringLiteral("org.kde.foo"));
+    QCOMPARE(windowData.value(QStringLiteral("caption")).toString(), QStringLiteral("Test window"));
 
     auto verifyProperty = [client] (const QString &name) {
         QDBusPendingReply<QVariantMap> reply{getWindowInfo(client->internalId())};
@@ -238,7 +225,7 @@ void TestDbusInterface::testGetWindowInfoShellClient()
 
     // finally close window
     const auto id = client->internalId();
-    QSignalSpy windowClosedSpy(client, &ShellClient::windowClosed);
+    QSignalSpy windowClosedSpy(client, &AbstractClient::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     shellSurface.reset();
     surface.reset();
@@ -287,7 +274,7 @@ void TestDbusInterface::testGetWindowInfoX11Client()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.first().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(client);
     QCOMPARE(client->window(), w);
     QCOMPARE(client->clientSize(), windowGeometry.size());
@@ -400,7 +387,7 @@ void TestDbusInterface::testGetWindowInfoX11Client()
     xcb_unmap_window(c.data(), w);
     xcb_flush(c.data());
 
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     QVERIFY(windowClosedSpy.wait());
     xcb_destroy_window(c.data(), w);

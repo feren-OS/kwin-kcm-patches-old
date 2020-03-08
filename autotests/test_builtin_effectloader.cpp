@@ -99,7 +99,7 @@ void TestBuiltInEffectLoader::testHasEffect_data()
     QTest::newRow("MagicLamp")                      << QStringLiteral("magiclamp")         << true;
     QTest::newRow("Magnifier")                      << QStringLiteral("magnifier")         << true;
     QTest::newRow("MouseClick")                     << QStringLiteral("mouseclick")        << true;
-//    QTest::newRow("MouseMark")                      << QStringLiteral("mousemark")         << true;
+    QTest::newRow("MouseMark")                      << QStringLiteral("mousemark")         << true;
     QTest::newRow("PresentWindows")                 << QStringLiteral("presentwindows")    << true;
     QTest::newRow("Resize")                         << QStringLiteral("resize")            << true;
     QTest::newRow("ScreenEdge")                     << QStringLiteral("screenedge")        << true;
@@ -247,7 +247,7 @@ void TestBuiltInEffectLoader::testSupported_data()
     QTest::newRow("StartupFeedback-GL")             << QStringLiteral("startupfeedback")   << true  << oc << true;
     QTest::newRow("ThumbnailAside")                 << QStringLiteral("thumbnailaside")    << true  << xc << true;
     QTest::newRow("TouchPoints")                    << QStringLiteral("touchpoints")       << true  << xc << true;
-//    QTest::newRow("TrackMouse")                     << QStringLiteral("trackmouse")        << true  << xc << true;
+    QTest::newRow("TrackMouse")                     << QStringLiteral("trackmouse")        << true  << xc << true;
     QTest::newRow("WindowGeometry")                 << QStringLiteral("windowgeometry")    << true  << xc << true;
     QTest::newRow("WobblyWindows")                  << QStringLiteral("wobblywindows")     << false << xc << true;
     QTest::newRow("WobblyWindows-GL")               << QStringLiteral("wobblywindows")     << true  << oc << true;

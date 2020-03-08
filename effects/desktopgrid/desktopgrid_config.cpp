@@ -73,7 +73,7 @@ DesktopGridEffectConfig::DesktopGridEffectConfig(QWidget* parent, const QVariant
     m_ui->shortcutEditor->addCollection(m_actionCollection);
 
 
-    m_ui->desktopNameAlignmentCombo->addItem(i18nc("Desktop name alignment:", "Disabled"), QVariant(Qt::Alignment(nullptr)));
+    m_ui->desktopNameAlignmentCombo->addItem(i18nc("Desktop name alignment:", "Disabled"), QVariant(Qt::Alignment()));
     m_ui->desktopNameAlignmentCombo->addItem(i18n("Top"), QVariant(Qt::AlignHCenter | Qt::AlignTop));
     m_ui->desktopNameAlignmentCombo->addItem(i18n("Top-Right"), QVariant(Qt::AlignRight | Qt::AlignTop));
     m_ui->desktopNameAlignmentCombo->addItem(i18n("Right"), QVariant(Qt::AlignRight | Qt::AlignVCenter));
@@ -87,8 +87,8 @@ DesktopGridEffectConfig::DesktopGridEffectConfig(QWidget* parent, const QVariant
     DesktopGridConfig::instance(KWIN_CONFIG);
     addConfig(DesktopGridConfig::self(), m_ui);
     connect(m_ui->kcfg_LayoutMode, qOverload<int>(&KComboBox::currentIndexChanged), this, &DesktopGridEffectConfig::layoutSelectionChanged);
-    connect(m_ui->desktopNameAlignmentCombo, qOverload<int>(&KComboBox::currentIndexChanged), this, qOverload<>(&DesktopGridEffectConfig::changed));
-    connect(m_ui->shortcutEditor, &KShortcutsEditor::keyChange, this, qOverload<>(&DesktopGridEffectConfig::changed));
+    connect(m_ui->desktopNameAlignmentCombo, qOverload<int>(&KComboBox::currentIndexChanged), this, &DesktopGridEffectConfig::markAsChanged);
+    connect(m_ui->shortcutEditor, &KShortcutsEditor::keyChange, this, &DesktopGridEffectConfig::markAsChanged);
 
     load();
     layoutSelectionChanged();

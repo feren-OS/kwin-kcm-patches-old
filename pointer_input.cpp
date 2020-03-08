@@ -4,7 +4,7 @@
 
 Copyright (C) 2013, 2016 Martin Gräßlin <mgraesslin@kde.org>
 Copyright (C) 2018 Roman Gilg <subdiff@gmail.com>
-Copyright (C) 2019 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,13 +21,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "pointer_input.h"
 #include "platform.h"
-#include "client.h"
+#include "x11client.h"
 #include "effects.h"
 #include "input_event.h"
 #include "input_event_spy.h"
 #include "osd.h"
 #include "screens.h"
-#include "shell_client.h"
 #include "wayland_cursor_theme.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -51,6 +50,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QHoverEvent>
 #include <QWindow>
+#include <QPainter>
 // Wayland
 #include <wayland-cursor.h>
 
@@ -59,52 +59,42 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 namespace KWin
 {
 
+static const QHash<uint32_t, Qt::MouseButton> s_buttonToQtMouseButton = {
+    { BTN_LEFT , Qt::LeftButton },
+    { BTN_MIDDLE , Qt::MiddleButton },
+    { BTN_RIGHT , Qt::RightButton },
+    // in QtWayland mapped like that
+    { BTN_SIDE , Qt::ExtraButton1 },
+    // in QtWayland mapped like that
+    { BTN_EXTRA , Qt::ExtraButton2 },
+    { BTN_BACK , Qt::BackButton },
+    { BTN_FORWARD , Qt::ForwardButton },
+    { BTN_TASK , Qt::TaskButton },
+    // mapped like that in QtWayland
+    { 0x118 , Qt::ExtraButton6 },
+    { 0x119 , Qt::ExtraButton7 },
+    { 0x11a , Qt::ExtraButton8 },
+    { 0x11b , Qt::ExtraButton9 },
+    { 0x11c , Qt::ExtraButton10 },
+    { 0x11d , Qt::ExtraButton11 },
+    { 0x11e , Qt::ExtraButton12 },
+    { 0x11f , Qt::ExtraButton13 },
+};
+
+uint32_t qtMouseButtonToButton(Qt::MouseButton button)
+{
+    return s_buttonToQtMouseButton.key(button);
+}
+
 static Qt::MouseButton buttonToQtMouseButton(uint32_t button)
 {
-    switch (button) {
-    case BTN_LEFT:
-        return Qt::LeftButton;
-    case BTN_MIDDLE:
-        return Qt::MiddleButton;
-    case BTN_RIGHT:
-        return Qt::RightButton;
-    case BTN_SIDE:
-        // in QtWayland mapped like that
-        return Qt::ExtraButton1;
-    case BTN_EXTRA:
-        // in QtWayland mapped like that
-        return Qt::ExtraButton2;
-    case BTN_BACK:
-        return Qt::BackButton;
-    case BTN_FORWARD:
-        return Qt::ForwardButton;
-    case BTN_TASK:
-        return Qt::TaskButton;
-        // mapped like that in QtWayland
-    case 0x118:
-        return Qt::ExtraButton6;
-    case 0x119:
-        return Qt::ExtraButton7;
-    case 0x11a:
-        return Qt::ExtraButton8;
-    case 0x11b:
-        return Qt::ExtraButton9;
-    case 0x11c:
-        return Qt::ExtraButton10;
-    case 0x11d:
-        return Qt::ExtraButton11;
-    case 0x11e:
-        return Qt::ExtraButton12;
-    case 0x11f:
-        return Qt::ExtraButton13;
-    }
     // all other values get mapped to ExtraButton24
     // this is actually incorrect but doesn't matter in our usage
     // KWin internally doesn't use these high extra buttons anyway
     // it's only needed for recognizing whether buttons are pressed
     // if multiple buttons are mapped to the value the evaluation whether
     // buttons are pressed is correct and that's all we care about.
-    return Qt::ExtraButton24;
+    return s_buttonToQtMouseButton.value(button, Qt::ExtraButton24);
 }
 
 static bool screenContainsPos(const QPointF &pos)
@@ -474,7 +464,6 @@ void PointerInputRedirection::cleanupInternalWindow(QWindow *old, QWindow *now)
 
     if (old) {
         // leave internal window
-        // TODO: do this instead via Wayland protocol as below
         QEvent leaveEvent(QEvent::Leave);
         QCoreApplication::sendEvent(old, &leaveEvent);
     }
@@ -513,7 +502,7 @@ void PointerInputRedirection::cleanupDecoration(Decoration::DecoratedClientImpl 
     QCoreApplication::instance()->sendEvent(now->decoration(), &event);
     now->client()->processDecorationMove(pos.toPoint(), m_pos.toPoint());
 
-    m_decorationGeometryConnection = connect(decoration()->client(), &AbstractClient::geometryChanged, this,
+    m_decorationGeometryConnection = connect(decoration()->client(), &AbstractClient::frameGeometryChanged, this,
         [this] {
             // ensure maximize button gets the leave event when maximizing/restore a window, see BUG 385140
             const auto oldDeco = decoration();
@@ -548,20 +537,20 @@ void PointerInputRedirection::focusUpdate(Toplevel *focusOld, Toplevel *focusNow
         workspace()->updateFocusMousePosition(m_pos.toPoint());
     }
 
-    auto seat = waylandServer()->seat();
-    if (!focusNow || !focusNow->surface() || decoration()) {
-        // no new surface or internal window or on decoration -> cleanup
-        warpXcbOnSurfaceLeft(nullptr);
-        seat->setFocusedPointerSurface(nullptr);
-        return;
-    }
-
     if (internalWindow()) {
         // enter internal window
-        // TODO: do this instead via Wayland protocol as below
         const auto pos = at()->pos();
         QEnterEvent enterEvent(pos, pos, m_pos);
         QCoreApplication::sendEvent(internalWindow().data(), &enterEvent);
+    }
+
+    auto seat = waylandServer()->seat();
+    if (!focusNow || !focusNow->surface() || decoration()) {
+        // Clean up focused pointer surface if there's no client to take focus,
+        // or the pointer is on a client without surface or on a decoration.
+        warpXcbOnSurfaceLeft(nullptr);
+        seat->setFocusedPointerSurface(nullptr);
+        return;
     }
 
     // TODO: add convenient API to update global pos together with updating focused surface
@@ -575,7 +564,7 @@ void PointerInputRedirection::focusUpdate(Toplevel *focusOld, Toplevel *focusNow
     seat->setPointerPos(m_pos.toPoint());
     seat->setFocusedPointerSurface(focusNow->surface(), focusNow->inputTransformation());
 
-    m_focusGeometryConnection = connect(focusNow, &Toplevel::geometryChanged, this,
+    m_focusGeometryConnection = connect(focusNow, &Toplevel::frameGeometryChanged, this,
         [this] {
             // TODO: why no assert possible?
             if (!focus()) {
@@ -1232,6 +1221,7 @@ void CursorImage::updateDragCursor()
         if (auto dragIcon = ddi->icon()) {
             if (auto buffer = dragIcon->buffer()) {
                 additionalIcon = buffer->data().copy();
+                additionalIcon.setOffset(dragIcon->offset());
             }
         }
     }
@@ -1264,7 +1254,32 @@ void CursorImage::updateDragCursor()
         return;
     }
     m_drag.cursor.hotSpot = c->hotspot();
-    m_drag.cursor.image = buffer->data().copy();
+
+    if (additionalIcon.isNull()) {
+        m_drag.cursor.image = buffer->data().copy();
+    } else {
+        QRect cursorRect = buffer->data().rect();
+        QRect iconRect = additionalIcon.rect();
+
+        if (-m_drag.cursor.hotSpot.x() < additionalIcon.offset().x()) {
+            iconRect.moveLeft(m_drag.cursor.hotSpot.x() - additionalIcon.offset().x());
+        } else {
+            cursorRect.moveLeft(-additionalIcon.offset().x() - m_drag.cursor.hotSpot.x());
+        }
+        if (-m_drag.cursor.hotSpot.y() < additionalIcon.offset().y()) {
+            iconRect.moveTop(m_drag.cursor.hotSpot.y() - additionalIcon.offset().y());
+        } else {
+            cursorRect.moveTop(-additionalIcon.offset().y() - m_drag.cursor.hotSpot.y());
+        }
+
+        m_drag.cursor.image = QImage(cursorRect.united(iconRect).size(), QImage::Format_ARGB32_Premultiplied);
+        m_drag.cursor.image.fill(Qt::transparent);
+        QPainter p(&m_drag.cursor.image);
+        p.drawImage(iconRect, additionalIcon);
+        p.drawImage(cursorRect, buffer->data());
+        p.end();
+    }
+
     if (needsEmit) {
         emit changed();
     }

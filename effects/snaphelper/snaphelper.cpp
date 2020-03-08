@@ -3,7 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2009 Lucas Murray <lmurray@undefinedfire.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -81,7 +81,7 @@ SnapHelperEffect::SnapHelperEffect()
     connect(effects, &EffectsHandler::windowClosed, this, &SnapHelperEffect::slotWindowClosed);
     connect(effects, &EffectsHandler::windowStartUserMovedResized, this, &SnapHelperEffect::slotWindowStartUserMovedResized);
     connect(effects, &EffectsHandler::windowFinishUserMovedResized, this, &SnapHelperEffect::slotWindowFinishUserMovedResized);
-    connect(effects, &EffectsHandler::windowGeometryShapeChanged, this, &SnapHelperEffect::slotWindowGeometryShapeChanged);
+    connect(effects, &EffectsHandler::windowFrameGeometryChanged, this, &SnapHelperEffect::slotWindowFrameGeometryChanged);
 }
 
 SnapHelperEffect::~SnapHelperEffect()
@@ -105,7 +105,7 @@ void SnapHelperEffect::prePaintScreen(ScreenPrePaintData &data, int time)
     effects->prePaintScreen(data, time);
 }
 
-void SnapHelperEffect::paintScreen(int mask, QRegion region, ScreenPaintData &data)
+void SnapHelperEffect::paintScreen(int mask, const QRegion &region, ScreenPaintData &data)
 {
     effects->paintScreen(mask, region, data);
 
@@ -316,7 +316,7 @@ void SnapHelperEffect::slotWindowFinishUserMovedResized(EffectWindow *w)
     effects->addRepaint(computeDirtyRegion(m_geometry));
 }
 
-void SnapHelperEffect::slotWindowGeometryShapeChanged(EffectWindow *w, const QRect &old)
+void SnapHelperEffect::slotWindowFrameGeometryChanged(EffectWindow *w, const QRect &old)
 {
     if (w != m_window) {
         return;

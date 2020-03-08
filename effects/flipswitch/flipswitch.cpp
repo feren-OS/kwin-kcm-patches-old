@@ -120,7 +120,7 @@ void FlipSwitchEffect::prePaintScreen(ScreenPrePaintData& data, int time)
     effects->prePaintScreen(data, time);
 }
 
-void FlipSwitchEffect::paintScreen(int mask, QRegion region, ScreenPaintData& data)
+void FlipSwitchEffect::paintScreen(int mask, const QRegion &region, ScreenPaintData& data)
 {
     effects->paintScreen(mask, region, data);
     if (m_active) {
@@ -805,7 +805,7 @@ void FlipSwitchEffect::selectNextOrPreviousWindow(bool forward)
 //*************************************************************
 // Keyboard handling
 //*************************************************************
-void FlipSwitchEffect::globalShortcutChanged(QAction *action, QKeySequence shortcut)
+void FlipSwitchEffect::globalShortcutChanged(QAction *action, const QKeySequence &shortcut)
 {
     if (action->objectName() == QStringLiteral("FlipSwitchAll")) {
         m_shortcutAll.clear();

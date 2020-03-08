@@ -18,9 +18,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "platform.h"
 #include "cursor.h"
-#include "shell_client.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -28,7 +28,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/connection_thread.h>
 #include <KWayland/Client/seat.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/server_decoration.h>
 #include <KWayland/Client/surface.h>
 #include <KWayland/Client/touch.h>
@@ -58,7 +57,6 @@ private:
 
 void TouchInputTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -106,7 +104,7 @@ AbstractClient *TouchInputTest::showWindow(bool decorated)
 
     Surface *surface = Test::createSurface(Test::waylandCompositor());
     VERIFY(surface);
-    ShellSurface *shellSurface = Test::createShellSurface(surface, surface);
+    XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     VERIFY(shellSurface);
     if (decorated) {
         auto deco = Test::waylandServerSideDecoration()->create(surface, surface);
@@ -269,7 +267,7 @@ void TouchInputTest::testTouchMouseAction()
     QVERIFY(sequenceStartedSpy.isValid());
 
     quint32 timestamp = 1;
-    kwinApp()->platform()->touchDown(1, c1->geometry().center(), timestamp++);
+    kwinApp()->platform()->touchDown(1, c1->frameGeometry().center(), timestamp++);
     QVERIFY(c1->isActive());
 
     QVERIFY(sequenceStartedSpy.wait());

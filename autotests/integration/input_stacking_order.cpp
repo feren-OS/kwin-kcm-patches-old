@@ -26,7 +26,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "shell_client.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/connection_thread.h>
@@ -34,7 +33,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/event_queue.h>
 #include <KWayland/Client/registry.h>
 #include <KWayland/Client/pointer.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/seat.h>
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/surface.h>
@@ -62,7 +60,6 @@ private:
 
 void InputStackingOrderTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Deleted*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
@@ -103,10 +100,10 @@ void InputStackingOrderTest::render(KWayland::Client::Surface *surface)
 
 void InputStackingOrderTest::testPointerFocusUpdatesOnStackingOrderChange_data()
 {
-    QTest::addColumn<Test::ShellSurfaceType>("type");
+    QTest::addColumn<Test::XdgShellSurfaceType>("type");
 
-    QTest::newRow("wlShell") << Test::ShellSurfaceType::WlShell;
-    QTest::newRow("xdgShellV5") << Test::ShellSurfaceType::XdgShellV5;
+    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
+    QTest::newRow("xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
 }
 
 void InputStackingOrderTest::testPointerFocusUpdatesOnStackingOrderChange()
@@ -130,8 +127,8 @@ void InputStackingOrderTest::testPointerFocusUpdatesOnStackingOrderChange()
     QVERIFY(clientAddedSpy.isValid());
     Surface *surface1 = Test::createSurface(Test::waylandCompositor());
     QVERIFY(surface1);
-    QFETCH(Test::ShellSurfaceType, type);
-    auto shellSurface1 = Test::createShellSurface(type, surface1, surface1);
+    QFETCH(Test::XdgShellSurfaceType, type);
+    XdgShellSurface *shellSurface1 = Test::createXdgShellSurface(type, surface1, surface1);
     QVERIFY(shellSurface1);
     render(surface1);
     QVERIFY(clientAddedSpy.wait());
@@ -140,7 +137,7 @@ void InputStackingOrderTest::testPointerFocusUpdatesOnStackingOrderChange()
 
     Surface *surface2 = Test::createSurface(Test::waylandCompositor());
     QVERIFY(surface2);
-    auto shellSurface2 = Test::createShellSurface(type, surface2, surface2);
+    XdgShellSurface *shellSurface2 = Test::createXdgShellSurface(type, surface2, surface2);
     QVERIFY(shellSurface2);
     render(surface2);
     QVERIFY(clientAddedSpy.wait());
@@ -151,7 +148,7 @@ void InputStackingOrderTest::testPointerFocusUpdatesOnStackingOrderChange()
 
     // now make windows overlap
     window2->move(window1->pos());
-    QCOMPARE(window1->geometry(), window2->geometry());
+    QCOMPARE(window1->frameGeometry(), window2->frameGeometry());
 
     // enter
     kwinApp()->platform()->pointerMotion(QPointF(25, 25), 1);

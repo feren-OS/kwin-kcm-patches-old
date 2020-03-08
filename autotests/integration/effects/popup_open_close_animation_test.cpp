@@ -2,7 +2,7 @@
 KWin - the KDE window manager
 This file is part of the KDE project.
 
-Copyright (C) 2019 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,8 +24,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "deleted.h"
 #include "effectloader.h"
 #include "effects.h"
+#include "internal_client.h"
 #include "platform.h"
-#include "shell_client.h"
 #include "useractions.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -64,7 +64,7 @@ void PopupOpenCloseAnimationTest::initTestCase()
 
     qRegisterMetaType<KWin::AbstractClient *>();
     qRegisterMetaType<KWin::Deleted *>();
-    qRegisterMetaType<KWin::ShellClient *>();
+    qRegisterMetaType<KWin::InternalClient *>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
@@ -117,7 +117,7 @@ void PopupOpenCloseAnimationTest::testAnimatePopups()
     QVERIFY(!mainWindowSurface.isNull());
     QScopedPointer<XdgShellSurface> mainWindowShellSurface(Test::createXdgShellStableSurface(mainWindowSurface.data()));
     QVERIFY(!mainWindowShellSurface.isNull());
-    ShellClient *mainWindow = Test::renderAndWaitForShown(mainWindowSurface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *mainWindow = Test::renderAndWaitForShown(mainWindowSurface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(mainWindow);
 
     // Load effect that will be tested.
@@ -137,7 +137,7 @@ void PopupOpenCloseAnimationTest::testAnimatePopups()
     positioner.setAnchorEdge(Qt::BottomEdge | Qt::LeftEdge);
     QScopedPointer<XdgShellPopup> popupShellSurface(Test::createXdgShellStablePopup(popupSurface.data(), mainWindowShellSurface.data(), positioner));
     QVERIFY(!popupShellSurface.isNull());
-    ShellClient *popup = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::red);
+    AbstractClient *popup = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::red);
     QVERIFY(popup);
     QVERIFY(popup->isPopupWindow());
     QCOMPARE(popup->transientFor(), mainWindow);
@@ -147,7 +147,7 @@ void PopupOpenCloseAnimationTest::testAnimatePopups()
     QTRY_VERIFY(!effect->isActive());
 
     // Destroy the popup, it should not be animated.
-    QSignalSpy popupClosedSpy(popup, &ShellClient::windowClosed);
+    QSignalSpy popupClosedSpy(popup, &AbstractClient::windowClosed);
     QVERIFY(popupClosedSpy.isValid());
     popupShellSurface.reset();
     popupSurface.reset();
@@ -164,8 +164,6 @@ void PopupOpenCloseAnimationTest::testAnimatePopups()
 
 void PopupOpenCloseAnimationTest::testAnimateUserActionsPopup()
 {
-    QSKIP("Can't animate the disappearing of the user actions popup.");
-
     // This test verifies that popup open/close animation effects try
     // to animate the user actions popup.
 
@@ -179,7 +177,7 @@ void PopupOpenCloseAnimationTest::testAnimateUserActionsPopup()
     QVERIFY(!surface.isNull());
     QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
-    ShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
     // Load effect that will be tested.
@@ -234,7 +232,7 @@ void PopupOpenCloseAnimationTest::testAnimateDecorationTooltips()
     QScopedPointer<XdgDecoration> deco(Test::xdgDecorationManager()->getToplevelDecoration(shellSurface.data()));
     QVERIFY(!deco.isNull());
     deco->setMode(XdgDecoration::Mode::ServerSide);
-    ShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(client->isDecorated());
 
@@ -248,11 +246,11 @@ void PopupOpenCloseAnimationTest::testAnimateDecorationTooltips()
     QVERIFY(!effect->isActive());
 
     // Show a decoration tooltip.
-    QSignalSpy tooltipAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
+    QSignalSpy tooltipAddedSpy(workspace(), &Workspace::internalClientAdded);
     QVERIFY(tooltipAddedSpy.isValid());
     client->decoratedClient()->requestShowToolTip(QStringLiteral("KWin rocks!"));
     QVERIFY(tooltipAddedSpy.wait());
-    ShellClient *tooltip = tooltipAddedSpy.first().first().value<ShellClient *>();
+    InternalClient *tooltip = tooltipAddedSpy.first().first().value<InternalClient *>();
     QVERIFY(tooltip->isInternal());
     QVERIFY(tooltip->isPopupWindow());
     QVERIFY(tooltip->internalWindow()->flags().testFlag(Qt::ToolTip));
@@ -262,7 +260,7 @@ void PopupOpenCloseAnimationTest::testAnimateDecorationTooltips()
     QTRY_VERIFY(!effect->isActive());
 
     // Hide the decoration tooltip.
-    QSignalSpy tooltipClosedSpy(tooltip, &ShellClient::windowClosed);
+    QSignalSpy tooltipClosedSpy(tooltip, &InternalClient::windowClosed);
     QVERIFY(tooltipClosedSpy.isValid());
     client->decoratedClient()->requestHideToolTip();
     QVERIFY(tooltipClosedSpy.wait());

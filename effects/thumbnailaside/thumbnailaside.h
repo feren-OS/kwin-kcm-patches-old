@@ -46,7 +46,7 @@ class ThumbnailAsideEffect
 public:
     ThumbnailAsideEffect();
     void reconfigure(ReconfigureFlags) override;
-    void paintScreen(int mask, QRegion region, ScreenPaintData& data) override;
+    void paintScreen(int mask, const QRegion &region, ScreenPaintData& data) override;
     void paintWindow(EffectWindow *w, int mask, QRegion region, WindowPaintData &data) override;
 
     // for properties
@@ -65,7 +65,7 @@ public:
 private Q_SLOTS:
     void toggleCurrentThumbnail();
     void slotWindowClosed(KWin::EffectWindow *w);
-    void slotWindowGeometryShapeChanged(KWin::EffectWindow *w, const QRect &old);
+    void slotWindowFrameGeometryChanged(KWin::EffectWindow *w, const QRect &old);
     void slotWindowDamaged(KWin::EffectWindow* w, const QRect& damage);
     bool isActive() const override;
     void repaintAll();

@@ -30,7 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QDir>
 
 #ifndef KCMRULES
-#include "client.h"
+#include "x11client.h"
 #include "client_machine.h"
 #include "screens.h"
 #include "workspace.h"
@@ -905,10 +905,10 @@ void AbstractClient::applyWindowRules()
     // Placement - does need explicit update, just like some others below
     // Geometry : setGeometry() doesn't check rules
     auto client_rules = rules();
-    QRect orig_geom = QRect(pos(), sizeForClientSize(clientSize()));   // handle shading
+    QRect orig_geom = QRect(pos(), adjustedSize());   // handle shading
     QRect geom = client_rules->checkGeometry(orig_geom);
     if (geom != orig_geom)
-        setGeometry(geom);
+        setFrameGeometry(geom);
     // MinSize, MaxSize handled by Geometry
     // IgnoreGeometry
     setDesktop(desktop());
@@ -944,7 +944,7 @@ void AbstractClient::applyWindowRules()
     // AutogroupById : Only checked on window manage
     // StrictGeometry
     setShortcut(rules()->checkShortcut(shortcut().toString()));
-    // see also Client::setActive()
+    // see also X11Client::setActive()
     if (isActive()) {
         setOpacity(rules()->checkOpacityActive(qRound(opacity() * 100.0)) / 100.0);
         workspace()->disableGlobalShortcutsForClient(rules()->checkDisableGlobalShortcuts(false));
@@ -953,7 +953,7 @@ void AbstractClient::applyWindowRules()
     setDesktopFileName(rules()->checkDesktopFile(desktopFileName()).toUtf8());
 }
 
-void Client::updateWindowRules(Rules::Types selection)
+void X11Client::updateWindowRules(Rules::Types selection)
 {
     if (!isManaged())  // not fully setup yet
         return;
@@ -1051,13 +1051,11 @@ void RuleBook::edit(AbstractClient* c, bool whole_app)
     p->setProgram(buildDirBinary.exists() ? buildDirBinary.absoluteFilePath() : QStringLiteral(KWIN_RULES_DIALOG_BIN));
     p->setProcessChannelMode(QProcess::MergedChannels);
     connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), p, &QProcess::deleteLater);
-    connect(p, static_cast<void (QProcess::*)(QProcess::ProcessError)>(&QProcess::error), this,
-        [p] (QProcess::ProcessError e) {
-            if (e == QProcess::FailedToStart) {
-                qCDebug(KWIN_CORE) << "Failed to start" << p->program();
-            }
+    connect(p, &QProcess::errorOccurred, this, [p](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart) {
+            qCDebug(KWIN_CORE) << "Failed to start" << p->program();
         }
-    );
+    });
     p->start();
 }
 
@@ -1083,7 +1081,7 @@ void RuleBook::save()
 {
     m_updateTimer->stop();
     if (!m_config) {
-        qCWarning(KWIN_CORE) << "RuleBook::save invoked without prior invokation of RuleBook::load";
+        qCWarning(KWIN_CORE) << "RuleBook::save invoked without prior invocation of RuleBook::load";
         return;
     }
     QStringList groups = m_config->groupList();
@@ -1170,7 +1168,7 @@ void RuleBook::setUpdatesDisabled(bool disable)
 {
     m_updatesDisabled = disable;
     if (!disable) {
-        foreach (Client * c, Workspace::self()->clientList())
+        foreach (X11Client *c, Workspace::self()->clientList())
             c->updateWindowRules(Rules::All);
     }
 }

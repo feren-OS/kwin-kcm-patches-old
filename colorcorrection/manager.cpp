@@ -18,6 +18,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "manager.h"
+#include "clockskewnotifier.h"
 #include "colorcorrectdbusinterface.h"
 #include "suncalc.h"
 #include <colorcorrect_logging.h>
@@ -36,14 +37,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QAction>
 #include <QDBusConnection>
-#include <QSocketNotifier>
 #include <QTimer>
-
-#ifdef Q_OS_LINUX
-#include <sys/timerfd.h>
-#endif
-#include <unistd.h>
-#include <fcntl.h>
 
 namespace KWin {
 namespace ColorCorrect {
@@ -60,7 +54,30 @@ Manager::Manager(QObject *parent)
     : QObject(parent)
 {
     m_iface = new ColorCorrectDBusInterface(this);
+    m_skewNotifier = new ClockSkewNotifier(this);
+
     connect(kwinApp(), &Application::workspaceCreated, this, &Manager::init);
+
+    // Display a message when Night Color is (un)inhibited.
+    connect(this, &Manager::inhibitedChanged, this, [this] {
+        // TODO: Maybe use different icons?
+        const QString iconName = isInhibited()
+            ? QStringLiteral("preferences-desktop-display-nightcolor-off")
+            : QStringLiteral("preferences-desktop-display-nightcolor-on");
+
+        const QString text = isInhibited()
+            ? i18nc("Night Color was disabled", "Night Color Off")
+            : i18nc("Night Color was enabled", "Night Color On");
+
+        QDBusMessage message = QDBusMessage::createMethodCall(
+            QStringLiteral("org.kde.plasmashell"),
+            QStringLiteral("/org/kde/osdService"),
+            QStringLiteral("org.kde.osdService"),
+            QStringLiteral("showText"));
+        message.setArguments({ iconName, text });
+
+        QDBusConnection::sessionBus().asyncCall(message);
+    });
 }
 
 void Manager::init()
@@ -69,7 +86,7 @@ void Manager::init()
     // we may always read in the current config
     readConfig();
 
-    if (!kwinApp()->platform()->supportsGammaControl()) {
+    if (!isAvailable()) {
         return;
     }
 
@@ -85,26 +102,7 @@ void Manager::init()
             }
     );
 
-#ifdef Q_OS_LINUX
-    // monitor for system clock changes - from the time dataengine
-    auto timeChangedFd = ::timerfd_create(CLOCK_REALTIME, O_CLOEXEC | O_NONBLOCK);
-    ::itimerspec timespec;
-    //set all timers to 0, which creates a timer that won't do anything
-    ::memset(&timespec, 0, sizeof(timespec));
-
-    // Monitor for the time changing (flags == TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET).
-    // However these are not exposed in glibc so value is hardcoded:
-    ::timerfd_settime(timeChangedFd, 3, &timespec, nullptr);
-
-    connect(this, &QObject::destroyed, [timeChangedFd]() {
-        ::close(timeChangedFd);
-    });
-
-    auto notifier = new QSocketNotifier(timeChangedFd, QSocketNotifier::Read, this);
-    connect(notifier, &QSocketNotifier::activated, this, [this](int fd) {
-        uint64_t c;
-        ::read(fd, &c, 8);
-
+    connect(m_skewNotifier, &ClockSkewNotifier::clockSkewed, this, [this]() {
         // check if we're resuming from suspend - in this case do a hard reset
         // Note: We're using the time clock to detect a suspend phase instead of connecting to the
         //       provided logind dbus signal, because this signal would be received way too late.
@@ -129,9 +127,6 @@ void Manager::init()
             resetAllTimers();
         }
     });
-#else
-    // TODO: Alternative method for BSD.
-#endif
 
     hardReset();
 }
@@ -140,13 +135,11 @@ void Manager::hardReset()
 {
     cancelAllTimers();
 
-    // Timings of the Sun are not used in the constant mode.
-    if (m_mode != NightColorMode::Constant) {
-        updateSunTimings(true);
-    }
+    updateTransitionTimings(true);
+    updateTargetTemperature();
 
-    if (kwinApp()->platform()->supportsGammaControl() && m_active) {
-        m_running = true;
+    if (isAvailable() && isEnabled() && !isInhibited()) {
+        setRunning(true);
         commitGammaRamps(currentTargetTemp());
     }
     resetAllTimers();
@@ -159,41 +152,85 @@ void Manager::reparseConfigAndReset()
     hardReset();
 }
 
-// FIXME: The internal OSD service doesn't work on X11 right now. Once the QPA
-// is ported away from Wayland, drop this function in favor of the internal
-// OSD service.
-static void showStatusOsd(bool enabled)
-{
-    // TODO: Maybe use different icons?
-    const QString iconName = enabled
-        ? QStringLiteral("preferences-desktop-display-nightcolor-on")
-        : QStringLiteral("preferences-desktop-display-nightcolor-off");
-
-    const QString text = enabled
-        ? i18nc("Night Color was enabled", "Night Color On")
-        : i18nc("Night Color was disabled", "Night Color Off");
-
-    QDBusMessage message = QDBusMessage::createMethodCall(
-        QStringLiteral("org.kde.plasmashell"),
-        QStringLiteral("/org/kde/osdService"),
-        QStringLiteral("org.kde.osdService"),
-        QStringLiteral("showText"));
-    message.setArguments({ iconName, text });
-
-    QDBusConnection::sessionBus().asyncCall(message);
-}
-
 void Manager::toggle()
 {
-    if (!kwinApp()->platform()->supportsGammaControl()) {
-        return;
+    m_isGloballyInhibited = !m_isGloballyInhibited;
+    m_isGloballyInhibited ? inhibit() : uninhibit();
+}
+
+bool Manager::isInhibited() const
+{
+    return m_inhibitReferenceCount;
+}
+
+void Manager::inhibit()
+{
+    m_inhibitReferenceCount++;
+
+    if (m_inhibitReferenceCount == 1) {
+        resetAllTimers();
+        emit inhibitedChanged();
     }
+}
 
-    m_active = !m_active;
+void Manager::uninhibit()
+{
+    m_inhibitReferenceCount--;
 
-    showStatusOsd(m_active);
+    if (!m_inhibitReferenceCount) {
+        resetAllTimers();
+        emit inhibitedChanged();
+    }
+}
 
-    resetAllTimers();
+bool Manager::isEnabled() const
+{
+    return m_active;
+}
+
+bool Manager::isRunning() const
+{
+    return m_running;
+}
+
+bool Manager::isAvailable() const
+{
+    return kwinApp()->platform()->supportsGammaControl();
+}
+
+int Manager::currentTemperature() const
+{
+    return m_currentTemp;
+}
+
+int Manager::targetTemperature() const
+{
+    return m_targetTemperature;
+}
+
+NightColorMode Manager::mode() const
+{
+    return m_mode;
+}
+
+QDateTime Manager::previousTransitionDateTime() const
+{
+    return m_prev.first;
+}
+
+qint64 Manager::previousTransitionDuration() const
+{
+    return m_prev.first.msecsTo(m_prev.second);
+}
+
+QDateTime Manager::scheduledTransitionDateTime() const
+{
+    return m_next.first;
+}
+
+qint64 Manager::scheduledTransitionDuration() const
+{
+    return m_next.first.msecsTo(m_next.second);
 }
 
 void Manager::initShortcuts()
@@ -211,7 +248,7 @@ void Manager::readConfig()
     Settings *s = Settings::self();
     s->load();
 
-    m_active = s->active();
+    setEnabled(s->active());
 
     const NightColorMode mode = s->mode();
     switch (s->mode()) {
@@ -219,11 +256,11 @@ void Manager::readConfig()
     case NightColorMode::Location:
     case NightColorMode::Timings:
     case NightColorMode::Constant:
-        m_mode = mode;
+        setMode(mode);
         break;
     default:
         // Fallback for invalid setting values.
-        m_mode = NightColorMode::Automatic;
+        setMode(NightColorMode::Automatic);
         break;
     }
 
@@ -278,14 +315,12 @@ void Manager::readConfig()
 void Manager::resetAllTimers()
 {
     cancelAllTimers();
-    if (kwinApp()->platform()->supportsGammaControl()) {
-        if (m_active) {
-            m_running = true;
-        }
+    if (isAvailable()) {
+        setRunning(isEnabled() && !isInhibited());
         // we do this also for active being false in order to reset the temperature back to the day value
         resetQuickAdjustTimer();
     } else {
-        m_running = false;
+        setRunning(false);
     }
 }
 
@@ -302,10 +337,8 @@ void Manager::cancelAllTimers()
 
 void Manager::resetQuickAdjustTimer()
 {
-    // We don't use timings of the Sun in the constant mode.
-    if (m_mode != NightColorMode::Constant) {
-        updateSunTimings(false);
-    }
+    updateTransitionTimings(false);
+    updateTargetTemperature();
 
     int tempDiff = qAbs(currentTargetTemp() - m_currentTemp);
     // allow tolerance of one TEMPERATURE_STEP to compensate if a slow update is coincidental
@@ -370,7 +403,9 @@ void Manager::resetSlowUpdateStartTimer()
     m_slowUpdateStartTimer->setSingleShot(true);
     connect(m_slowUpdateStartTimer, &QTimer::timeout, this, &Manager::resetSlowUpdateStartTimer);
 
-    updateSunTimings(false);
+    updateTransitionTimings(false);
+    updateTargetTemperature();
+
     const int diff = QDateTime::currentDateTime().msecsTo(m_next.first);
     if (diff <= 0) {
         qCCritical(KWIN_COLORCORRECTION) << "Error in time calculation. Deactivating Night Color.";
@@ -408,7 +443,7 @@ void Manager::resetSlowUpdateTimer()
         }
 
         // calculate interval such as temperature is changed by TEMPERATURE_STEP K per timer timeout
-        int interval = availTime / (qAbs(targetTemp - m_currentTemp) / TEMPERATURE_STEP);
+        int interval = availTime * TEMPERATURE_STEP / qAbs(targetTemp - m_currentTemp);
         if (interval == 0) {
             interval = 1;
         }
@@ -435,8 +470,29 @@ void Manager::slowUpdate(int targetTemp)
     }
 }
 
-void Manager::updateSunTimings(bool force)
+void Manager::updateTargetTemperature()
 {
+    const int targetTemperature = mode() != NightColorMode::Constant && daylight() ? m_dayTargetTemp : m_nightTargetTemp;
+
+    if (m_targetTemperature == targetTemperature) {
+        return;
+    }
+
+    m_targetTemperature = targetTemperature;
+
+    emit targetTemperatureChanged();
+}
+
+void Manager::updateTransitionTimings(bool force)
+{
+    if (m_mode == NightColorMode::Constant) {
+        m_next = DateTimes();
+        m_prev = DateTimes();
+        emit previousTransitionTimingsChanged();
+        emit scheduledTransitionTimingsChanged();
+        return;
+    }
+
     const QDateTime todayNow = QDateTime::currentDateTime();
 
     if (m_mode == NightColorMode::Timings) {
@@ -455,6 +511,8 @@ void Manager::updateSunTimings(bool force)
             m_next = DateTimes(morB.addDays(1), morE.addDays(1));
             m_prev = DateTimes(eveB, eveE);
         }
+        emit previousTransitionTimingsChanged();
+        emit scheduledTransitionTimingsChanged();
         return;
     }
 
@@ -497,6 +555,9 @@ void Manager::updateSunTimings(bool force)
             }
         }
     }
+
+    emit previousTransitionTimingsChanged();
+    emit scheduledTransitionTimingsChanged();
 }
 
 DateTimes Manager::getSunTimings(const QDateTime &dateTime, double latitude, double longitude, bool morning) const
@@ -542,7 +603,7 @@ bool Manager::daylight() const
 
 int Manager::currentTargetTemp() const
 {
-    if (!m_active) {
+    if (!m_running) {
         return NEUTRAL_TEMPERATURE;
     }
 
@@ -611,7 +672,7 @@ void Manager::commitGammaRamps(int temperature)
         }
 
         if (o->setGammaRamp(ramp)) {
-            m_currentTemp = temperature;
+            setCurrentTemperature(temperature);
             m_failedCommitAttempts = 0;
         } else {
             m_failedCommitAttempts++;
@@ -619,10 +680,10 @@ void Manager::commitGammaRamps(int temperature)
                 qCWarning(KWIN_COLORCORRECTION).nospace() << "Committing Gamma Ramp failed for output " << o->name() <<
                          ". Trying " << (10 - m_failedCommitAttempts) << " times more.";
             } else {
-                // TODO: On multi monitor setups we could try to rollback earlier changes for already commited outputs
+                // TODO: On multi monitor setups we could try to rollback earlier changes for already committed outputs
                 qCWarning(KWIN_COLORCORRECTION) << "Gamma Ramp commit failed too often. Deactivating color correction for now.";
                 m_failedCommitAttempts = 0; // reset so we can try again later (i.e. after suspend phase or config change)
-                m_running = false;
+                setRunning(false);
                 cancelAllTimers();
             }
         }
@@ -632,7 +693,7 @@ void Manager::commitGammaRamps(int temperature)
 QHash<QString, QVariant> Manager::info() const
 {
     return QHash<QString, QVariant> {
-        { QStringLiteral("Available"), kwinApp()->platform()->supportsGammaControl() },
+        { QStringLiteral("Available"), isAvailable() },
 
         { QStringLiteral("ActiveEnabled"), true},
         { QStringLiteral("Active"), m_active},
@@ -785,12 +846,12 @@ bool Manager::changeConfiguration(QHash<QString, QVariant> data)
 
     Settings *s = Settings::self();
     if (activeUpdate) {
-        m_active = active;
+        setEnabled(active);
         s->setActive(active);
     }
 
     if (modeUpdate) {
-        m_mode = mode;
+        setMode(mode);
         s->setMode(mode);
     }
 
@@ -846,6 +907,43 @@ void Manager::autoLocationUpdate(double latitude, double longitude)
 
     resetAllTimers();
     emit configChange(info());
+}
+
+void Manager::setEnabled(bool enabled)
+{
+    if (m_active == enabled) {
+        return;
+    }
+    m_active = enabled;
+    m_skewNotifier->setActive(enabled);
+    emit enabledChanged();
+}
+
+void Manager::setRunning(bool running)
+{
+    if (m_running == running) {
+        return;
+    }
+    m_running = running;
+    emit runningChanged();
+}
+
+void Manager::setCurrentTemperature(int temperature)
+{
+    if (m_currentTemp == temperature) {
+        return;
+    }
+    m_currentTemp = temperature;
+    emit currentTemperatureChanged();
+}
+
+void Manager::setMode(NightColorMode mode)
+{
+    if (m_mode == mode) {
+        return;
+    }
+    m_mode = mode;
+    emit modeChanged();
 }
 
 }

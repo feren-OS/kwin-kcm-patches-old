@@ -26,7 +26,6 @@
 
 #include <QGuiApplication>
 #include <QMatrix4x4>
-#include <QLinkedList>
 #include <QScreen> // for QGuiApplication
 #include <QTime>
 #include <QWindow>
@@ -580,7 +579,7 @@ bool BlurEffect::shouldBlur(const EffectWindow *w, int mask, const WindowPaintDa
     return true;
 }
 
-void BlurEffect::drawWindow(EffectWindow *w, int mask, QRegion region, WindowPaintData &data)
+void BlurEffect::drawWindow(EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data)
 {
     const QRect screen = GLRenderTarget::virtualScreenGeometry();
     if (shouldBlur(w, mask, data)) {
@@ -616,7 +615,7 @@ void BlurEffect::drawWindow(EffectWindow *w, int mask, QRegion region, WindowPai
     effects->drawWindow(w, mask, region, data);
 }
 
-void BlurEffect::paintEffectFrame(EffectFrame *frame, QRegion region, double opacity, double frameOpacity)
+void BlurEffect::paintEffectFrame(EffectFrame *frame, const QRegion &region, double opacity, double frameOpacity)
 {
     const QRect screen = effects->virtualScreenGeometry();
     bool valid = m_renderTargetsValid && m_shader && m_shader->isValid();

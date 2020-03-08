@@ -25,43 +25,27 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "presentwindows_proxy.h"
 
 #include <kwineffects.h>
+#include <kwineffectquickview.h>
+
+#include <QElapsedTimer>
 
 class QMouseEvent;
-class QElapsedTimer;
 class QQuickView;
 
 namespace KWin
 {
-class CloseWindowView : public QObject
+class CloseWindowView : public EffectQuickScene
 {
     Q_OBJECT
 public:
     explicit CloseWindowView(QObject *parent = nullptr);
-    void windowInputMouseEvent(QMouseEvent* e);
     void disarm();
-
-    void show();
-    void hide();
-    bool isVisible() const;
-
-    // delegate to QWindow
-    int width() const;
-    int height() const;
-    QSize size() const;
-    QRect geometry() const;
-    WId winId() const;
-    void setGeometry(const QRect &geometry);
-    QPoint mapFromGlobal(const QPoint &pos) const;
-
 Q_SIGNALS:
     void requestClose();
-
+private Q_SLOTS:
+    void clicked();
 private:
-    QScopedPointer<QElapsedTimer> m_armTimer;
-    QScopedPointer<QQuickView> m_window;
-    bool m_visible;
-    QPoint m_pos;
-    bool m_posIsValid;
+    QElapsedTimer m_armTimer;
 };
 
 /**
@@ -114,7 +98,7 @@ public:
 
     // Screen painting
     void prePaintScreen(ScreenPrePaintData &data, int time) override;
-    void paintScreen(int mask, QRegion region, ScreenPaintData &data) override;
+    void paintScreen(int mask, const QRegion &region, ScreenPaintData &data) override;
     void postPaintScreen() override;
 
     // Window painting
@@ -224,13 +208,12 @@ public Q_SLOTS:
     void slotWindowAdded(KWin::EffectWindow *w);
     void slotWindowClosed(KWin::EffectWindow *w);
     void slotWindowDeleted(KWin::EffectWindow *w);
-    void slotWindowGeometryShapeChanged(KWin::EffectWindow *w, const QRect &old);
+    void slotWindowFrameGeometryChanged(KWin::EffectWindow *w, const QRect &old);
     // atoms
     void slotPropertyNotify(KWin::EffectWindow* w, long atom);
 
 private Q_SLOTS:
     void closeWindow();
-    void elevateCloseWindow();
 
 protected:
     // Window rearranging
@@ -335,7 +318,6 @@ private:
     DesktopMouseAction m_rightButtonDesktop;
 
     CloseWindowView* m_closeView;
-    EffectWindow* m_closeWindow;
     Qt::Corner m_closeButtonCorner;
     struct {
         qint32 id = 0;

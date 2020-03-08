@@ -221,8 +221,17 @@ static ChipClass detectRadeonClass(const QByteArray &chipset)
     if (chipset.contains("VEGA10") ||
         chipset.contains("VEGA12") ||
         chipset.contains("VEGA20") ||
-        chipset.contains("RAVEN")) {
+        chipset.contains("RAVEN")  ||
+        chipset.contains("RAVEN2") ||
+        chipset.contains("RENOIR") ||
+        chipset.contains("ARCTURUS")) {
         return Vega;
+    }
+
+    if (chipset.contains("NAVI10") ||
+        chipset.contains("NAVI12") ||
+        chipset.contains("NAVI14")) {
+        return Navi;
     }
 
     const QString chipset16 = QString::fromLatin1(chipset);
@@ -524,6 +533,8 @@ QByteArray GLPlatform::driverToString8(Driver driver)
         return QByteArrayLiteral("VMware (SVGA3D)");
     case Driver_Qualcomm:
         return QByteArrayLiteral("Qualcomm");
+    case Driver_Virgl:
+        return QByteArrayLiteral("Virgl (virtio-gpu, Qemu/KVM guest)");
 
     default:
         return QByteArrayLiteral("Unknown");
@@ -565,6 +576,8 @@ QByteArray GLPlatform::chipClassToString8(ChipClass chipClass)
         return QByteArrayLiteral("Arctic Islands");
     case Vega:
         return QByteArrayLiteral("Vega");
+    case Navi:
+        return QByteArrayLiteral("Navi");
 
     case NV10:
         return QByteArrayLiteral("NV10");
@@ -680,7 +693,7 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
     // Parse the Mesa version
     const int mesaIndex = versionTokens.indexOf("Mesa");
     if (mesaIndex != -1) {
-        const QByteArray version = versionTokens.at(mesaIndex + 1);
+        const QByteArray &version = versionTokens.at(mesaIndex + 1);
         m_mesaVersion = parseVersionString(version);
     }
 
@@ -718,7 +731,7 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
     if (m_renderer.startsWith("Mesa DRI R")) {
         // Sample renderer string: Mesa DRI R600 (RV740 94B3) 20090101 x86/MMX/SSE2 TCL DRI2
         const QList<QByteArray> tokens = m_renderer.split(' ');
-        const QByteArray chipClass = tokens.at(2);
+        const QByteArray &chipClass = tokens.at(2);
         m_chipset = tokens.at(3).mid(1, -1); // Strip the leading '('
 
         if (chipClass == "R100")
@@ -874,7 +887,13 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
                  m_renderer.contains("VEGA10")    ||
                  m_renderer.contains("VEGA12")    ||
                  m_renderer.contains("VEGA20")    ||
-                 m_renderer.contains("RAVEN"))) {
+                 m_renderer.contains("RAVEN")     ||
+                 m_renderer.contains("RAVEN2")    ||
+                 m_renderer.contains("RENOIR")    ||
+                 m_renderer.contains("ARCTURUS")  ||
+                 m_renderer.contains("NAVI10")    ||
+                 m_renderer.contains("NAVI12")    ||
+                 m_renderer.contains("NAVI14"))) {
             m_chipClass = detectRadeonClass(m_renderer);
             m_driver = Driver_RadeonSI;
         }
@@ -898,6 +917,11 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
         // SVGA3D
         else if (m_vendor == "VMware, Inc." && m_chipset.contains("SVGA3D")) {
             m_driver = Driver_VMware;
+        }
+
+        // virgl
+        else if (m_renderer == "virgl") {
+            m_driver = Driver_Virgl;
         }
     }
 
@@ -1013,6 +1037,11 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
     }
 
     if (isVMware()) {
+        m_virtualMachine = true;
+        m_recommendedCompositor = OpenGL2Compositing;
+    }
+
+    if (m_driver == Driver_Virgl) {
         m_virtualMachine = true;
         m_recommendedCompositor = OpenGL2Compositing;
     }
@@ -1169,6 +1198,11 @@ bool GLPlatform::isVirtualBox() const
 bool GLPlatform::isVMware() const
 {
     return m_driver == Driver_VMware;
+}
+
+bool GLPlatform::isVirgl() const
+{
+    return m_driver == Driver_Virgl;
 }
 
 bool GLPlatform::isSoftwareEmulation() const

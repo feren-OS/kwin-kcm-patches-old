@@ -18,7 +18,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
-#include "client.h"
+#include "x11client.h"
 #include "composite.h"
 #include "deleted.h"
 #include "effects.h"
@@ -26,7 +26,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "cursor.h"
 #include "platform.h"
 #include "scene.h"
-#include "shell_client.h"
 #include "wayland_server.h"
 #include "workspace.h"
 #include "effect_builtins.h"
@@ -36,7 +35,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/connection_thread.h>
 #include <KWayland/Client/registry.h>
 #include <KWayland/Client/surface.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/slide.h>
 
 #include <netwm.h>
@@ -62,7 +60,6 @@ private Q_SLOTS:
 void SlidingPopupsTest::initTestCase()
 {
     qputenv("XDG_DATA_DIRS", QCoreApplication::applicationDirPath().toUtf8());
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Deleted*>();
     qRegisterMetaType<KWin::Effect*>();
@@ -220,7 +217,7 @@ void SlidingPopupsTest::testWithOtherEffect()
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(windowCreatedSpy.isValid());
     QVERIFY(windowCreatedSpy.wait());
-    Client *client = windowCreatedSpy.first().first().value<Client*>();
+    X11Client *client = windowCreatedSpy.first().first().value<X11Client *>();
     QVERIFY(client);
     QCOMPARE(client->window(), w);
     QVERIFY(client->isNormalWindow());
@@ -239,7 +236,7 @@ void SlidingPopupsTest::testWithOtherEffect()
     xcb_unmap_window(c.data(), w);
     xcb_flush(c.data());
 
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
 
     QSignalSpy windowDeletedSpy(effects, &EffectsHandler::windowDeleted);
@@ -337,7 +334,7 @@ void SlidingPopupsTest::testWithOtherEffectWayland()
     QScopedPointer<Slide> slide(slideManager->createSlide(surface.data()));
     slide->setLocation(Slide::Location::Left);
     slide->commit();
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(shellSurface);
     QCOMPARE(windowAddedSpy.count(), 0);
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(10, 20), Qt::blue);
@@ -358,7 +355,7 @@ void SlidingPopupsTest::testWithOtherEffectWayland()
     shellSurface.reset();
     surface.reset();
 
-    QSignalSpy windowClosedSpy(client, &Client::windowClosed);
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
 
     QSignalSpy windowDeletedSpy(effects, &EffectsHandler::windowDeleted);

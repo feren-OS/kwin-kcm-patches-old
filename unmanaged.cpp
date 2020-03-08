@@ -35,11 +35,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 namespace KWin
 {
 
+// window types that are supported as unmanaged (mainly for compositing)
+const NET::WindowTypes SUPPORTED_UNMANAGED_WINDOW_TYPES_MASK = NET::NormalMask | NET::DesktopMask | NET::DockMask
+        | NET::ToolbarMask | NET::MenuMask | NET::DialogMask /*| NET::OverrideMask*/ | NET::TopMenuMask
+        | NET::UtilityMask | NET::SplashMask | NET::DropdownMenuMask | NET::PopupMenuMask
+        | NET::TooltipMask | NET::NotificationMask | NET::ComboBoxMask | NET::DNDIconMask | NET::OnScreenDisplayMask
+        | NET::CriticalNotificationMask;
+
 Unmanaged::Unmanaged()
     : Toplevel()
 {
-    ready_for_painting = false;
-    connect(this, SIGNAL(geometryShapeChanged(KWin::Toplevel*,QRect)), SIGNAL(geometryChanged()));
     QTimer::singleShot(50, this, SLOT(setReadyForPainting()));
 }
 
@@ -49,7 +54,7 @@ Unmanaged::~Unmanaged()
 
 bool Unmanaged::track(xcb_window_t w)
 {
-    GRAB_SERVER_DURING_CONTEXT
+    XServerGrabber xserverGrabber;
     Xcb::WindowAttributes attr(w);
     Xcb::WindowGeometry geo(w);
     if (attr.isNull() || attr->map_state != XCB_MAP_STATE_VIEWABLE) {
@@ -63,7 +68,7 @@ bool Unmanaged::track(xcb_window_t w)
     }
     setWindowHandles(w);   // the window is also the frame
     Xcb::selectInput(w, attr->your_event_mask | XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE);
-    geom = geo.rect();
+    m_frameGeometry = geo.rect();
     checkScreen();
     m_visual = attr->visual;
     bit_depth = geo->depth;
@@ -115,6 +120,16 @@ void Unmanaged::release(ReleaseReason releaseReason)
 void Unmanaged::deleteUnmanaged(Unmanaged* c)
 {
     delete c;
+}
+
+bool Unmanaged::hasScheduledRelease() const
+{
+    return m_scheduledRelease;
+}
+
+QRect Unmanaged::bufferGeometry() const
+{
+    return m_frameGeometry;
 }
 
 int Unmanaged::desktop() const

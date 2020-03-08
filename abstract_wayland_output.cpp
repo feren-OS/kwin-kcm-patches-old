@@ -18,6 +18,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "abstract_wayland_output.h"
+
+#include "screens.h"
 #include "wayland_server.h"
 
 // KWayland
@@ -86,6 +88,11 @@ void AbstractWaylandOutput::setGlobalPos(const QPoint &pos)
     }
 }
 
+QSize AbstractWaylandOutput::modeSize() const
+{
+    return m_waylandOutputDevice->pixelSize();
+}
+
 QSize AbstractWaylandOutput::pixelSize() const
 {
     return orientateSize(m_waylandOutputDevice->pixelSize());
@@ -113,10 +120,61 @@ void AbstractWaylandOutput::setScale(qreal scale)
     }
 }
 
+using DeviceInterface = KWayland::Server::OutputDeviceInterface;
+
+KWayland::Server::OutputInterface::Transform toOutputTransform(DeviceInterface::Transform transform)
+{
+    using Transform = DeviceInterface::Transform;
+    using OutputTransform = KWayland::Server::OutputInterface::Transform;
+
+    switch (transform) {
+    case Transform::Rotated90:
+        return OutputTransform::Rotated90;
+    case Transform::Rotated180:
+        return OutputTransform::Rotated180;
+    case Transform::Rotated270:
+        return OutputTransform::Rotated270;
+    case Transform::Flipped:
+        return OutputTransform::Flipped;
+    case Transform::Flipped90:
+        return OutputTransform::Flipped90;
+    case Transform::Flipped180:
+        return OutputTransform::Flipped180;
+    case Transform::Flipped270:
+        return OutputTransform::Flipped270;
+    default:
+        return OutputTransform::Normal;
+    }
+}
+
+void AbstractWaylandOutput::setTransform(DeviceInterface::Transform transform)
+{
+    m_waylandOutputDevice->setTransform(transform);
+
+    if (isEnabled()) {
+        m_waylandOutput->setTransform(toOutputTransform(transform));
+        m_xdgOutput->setLogicalSize(pixelSize() / scale());
+        m_xdgOutput->done();
+    }
+}
+
+inline
+AbstractWaylandOutput::Transform toTransform(DeviceInterface::Transform deviceTransform)
+{
+    return static_cast<AbstractWaylandOutput::Transform>(deviceTransform);
+}
+
+inline
+DeviceInterface::Transform toDeviceTransform(AbstractWaylandOutput::Transform transform)
+{
+    return static_cast<DeviceInterface::Transform>(transform);
+}
+
 void AbstractWaylandOutput::applyChanges(const KWayland::Server::OutputChangeSet *changeSet)
 {
     qCDebug(KWIN_CORE) << "Apply changes to the Wayland output.";
     bool emitModeChanged = false;
+    bool overallSizeCheckNeeded = false;
 
     // Enablement changes are handled by platform.
     if (changeSet->modeChanged()) {
@@ -127,13 +185,15 @@ void AbstractWaylandOutput::applyChanges(const KWayland::Server::OutputChangeSet
     }
     if (changeSet->transformChanged()) {
         qCDebug(KWIN_CORE) << "Server setting transform: " << (int)(changeSet->transform());
-        transform(changeSet->transform());
+        setTransform(changeSet->transform());
+        updateTransform(toTransform(changeSet->transform()));
         emitModeChanged = true;
     }
     if (changeSet->positionChanged()) {
         qCDebug(KWIN_CORE) << "Server setting position: " << changeSet->position();
         setGlobalPos(changeSet->position());
         // may just work already!
+        overallSizeCheckNeeded = true;
     }
     if (changeSet->scaleChanged()) {
         qCDebug(KWIN_CORE) << "Setting scale:" << changeSet->scale();
@@ -141,12 +201,15 @@ void AbstractWaylandOutput::applyChanges(const KWayland::Server::OutputChangeSet
         emitModeChanged = true;
     }
 
+    overallSizeCheckNeeded |= emitModeChanged;
+    if (overallSizeCheckNeeded) {
+        emit screens()->changed();
+    }
+
     if (emitModeChanged) {
         emit modeChanged();
     }
 }
-
-using DeviceInterface = KWayland::Server::OutputDeviceInterface;
 
 bool AbstractWaylandOutput::isEnabled() const
 {
@@ -262,10 +325,28 @@ void AbstractWaylandOutput::initInterfaces(const QString &model, const QString &
 
 QSize AbstractWaylandOutput::orientateSize(const QSize &size) const
 {
-    if (m_orientation == Qt::PortraitOrientation || m_orientation == Qt::InvertedPortraitOrientation) {
+    using Transform = DeviceInterface::Transform;
+    const Transform transform = m_waylandOutputDevice->transform();
+    if (transform == Transform::Rotated90 || transform == Transform::Rotated270 ||
+            transform == Transform::Flipped90 || transform == Transform::Flipped270) {
         return size.transposed();
     }
     return size;
+}
+
+void AbstractWaylandOutput::setTransform(Transform transform)
+{
+    const auto deviceTransform = toDeviceTransform(transform);
+    if (deviceTransform == m_waylandOutputDevice->transform()) {
+        return;
+    }
+    setTransform(deviceTransform);
+    emit modeChanged();
+}
+
+AbstractWaylandOutput::Transform AbstractWaylandOutput::transform() const
+{
+    return static_cast<Transform>(m_waylandOutputDevice->transform());
 }
 
 }

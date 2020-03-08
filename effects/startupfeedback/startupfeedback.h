@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QObject>
 #include <kwineffects.h>
 #include <KStartupInfo>
+#include <KConfigWatcher>
 
 class KSelectionOwner;
 namespace KWin
@@ -40,7 +41,7 @@ public:
 
     void reconfigure(ReconfigureFlags flags) override;
     void prePaintScreen(ScreenPrePaintData& data, int time) override;
-    void paintScreen(int mask, QRegion region, ScreenPaintData& data) override;
+    void paintScreen(int mask, const QRegion &region, ScreenPaintData& data) override;
     void postPaintScreen() override;
     bool isActive() const override;
 
@@ -87,6 +88,7 @@ private:
     QRect m_currentGeometry, m_dirtyRect;
     GLShader *m_blinkingShader;
     int m_cursorSize;
+    KConfigWatcher::Ptr m_configWatcher;
 };
 } // namespace
 

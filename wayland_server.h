@@ -49,7 +49,6 @@ class CompositorInterface;
 class Display;
 class DataDeviceInterface;
 class IdleInterface;
-class ShellInterface;
 class SeatInterface;
 class DataDeviceManagerInterface;
 class ServerSideDecorationManagerInterface;
@@ -75,7 +74,7 @@ class LinuxDmabufUnstableV1Buffer;
 
 namespace KWin
 {
-class ShellClient;
+class XdgShellClient;
 
 class AbstractClient;
 class Toplevel;
@@ -109,9 +108,6 @@ public:
     KWayland::Server::DataDeviceManagerInterface *dataDeviceManager() {
         return m_dataDeviceManager;
     }
-    KWayland::Server::ShellInterface *shell() {
-        return m_shell;
-    }
     KWayland::Server::PlasmaVirtualDesktopManagementInterface *virtualDesktopManagement() {
         return m_virtualDesktopManagement;
     }
@@ -126,17 +122,13 @@ public:
     }
     KWayland::Server::LinuxDmabufUnstableV1Interface *linuxDmabuf();
 
-    QList<ShellClient*> clients() const {
+    QList<AbstractClient *> clients() const {
         return m_clients;
     }
-    QList<ShellClient*> internalClients() const {
-        return m_internalClients;
-    }
-    void removeClient(ShellClient *c);
-    ShellClient *findClient(quint32 id) const;
-    ShellClient *findClient(KWayland::Server::SurfaceInterface *surface) const;
-    AbstractClient *findAbstractClient(KWayland::Server::SurfaceInterface *surface) const;
-    ShellClient *findClient(QWindow *w) const;
+    void removeClient(AbstractClient *c);
+    AbstractClient *findClient(quint32 id) const;
+    AbstractClient *findClient(KWayland::Server::SurfaceInterface *surface) const;
+    XdgShellClient *findXdgShellClient(KWayland::Server::SurfaceInterface *surface) const;
 
     /**
      * @returns a transient parent of a surface imported with the foreign protocol, if any
@@ -238,8 +230,8 @@ public:
     }
 
 Q_SIGNALS:
-    void shellClientAdded(KWin::ShellClient*);
-    void shellClientRemoved(KWin::ShellClient*);
+    void shellClientAdded(KWin::AbstractClient *);
+    void shellClientRemoved(KWin::AbstractClient *);
     void terminatingInternalClientConnection();
     void initialized();
     void foreignTransientChanged(KWayland::Server::SurfaceInterface *child);
@@ -255,8 +247,6 @@ private:
     KWayland::Server::CompositorInterface *m_compositor = nullptr;
     KWayland::Server::SeatInterface *m_seat = nullptr;
     KWayland::Server::DataDeviceManagerInterface *m_dataDeviceManager = nullptr;
-    KWayland::Server::ShellInterface *m_shell = nullptr;
-    KWayland::Server::XdgShellInterface *m_xdgShell5 = nullptr;
     KWayland::Server::XdgShellInterface *m_xdgShell6 = nullptr;
     KWayland::Server::XdgShellInterface *m_xdgShell = nullptr;
     KWayland::Server::PlasmaShellInterface *m_plasmaShell = nullptr;
@@ -291,8 +281,7 @@ private:
     } m_internalConnection;
     KWayland::Server::XdgForeignInterface *m_XdgForeign = nullptr;
     KWayland::Server::KeyStateInterface *m_keyState = nullptr;
-    QList<ShellClient*> m_clients;
-    QList<ShellClient*> m_internalClients;
+    QList<AbstractClient *> m_clients;
     QHash<KWayland::Server::ClientConnection*, quint16> m_clientIds;
     InitalizationFlags m_initFlags;
     QVector<KWayland::Server::PlasmaShellSurfaceInterface*> m_plasmaShellSurfaces;

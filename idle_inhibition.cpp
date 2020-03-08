@@ -3,7 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2017 Martin Flöser <mgraesslin@kde.org>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "idle_inhibition.h"
+#include "abstract_client.h"
 #include "deleted.h"
-#include "shell_client.h"
 #include "workspace.h"
 
 #include <KWayland/Server/idle_interface.h>
@@ -44,19 +44,19 @@ IdleInhibition::IdleInhibition(IdleInterface *idle)
 
 IdleInhibition::~IdleInhibition() = default;
 
-void IdleInhibition::registerShellClient(ShellClient *client)
+void IdleInhibition::registerClient(AbstractClient *client)
 {
     auto updateInhibit = [this, client] {
         update(client);
     };
 
     m_connections[client] = connect(client->surface(), &SurfaceInterface::inhibitsIdleChanged, this, updateInhibit);
-    connect(client, &ShellClient::desktopChanged, this, updateInhibit);
-    connect(client, &ShellClient::clientMinimized, this, updateInhibit);
-    connect(client, &ShellClient::clientUnminimized, this, updateInhibit);
-    connect(client, &ShellClient::windowHidden, this, updateInhibit);
-    connect(client, &ShellClient::windowShown, this, updateInhibit);
-    connect(client, &ShellClient::windowClosed, this,
+    connect(client, &AbstractClient::desktopChanged, this, updateInhibit);
+    connect(client, &AbstractClient::clientMinimized, this, updateInhibit);
+    connect(client, &AbstractClient::clientUnminimized, this, updateInhibit);
+    connect(client, &AbstractClient::windowHidden, this, updateInhibit);
+    connect(client, &AbstractClient::windowShown, this, updateInhibit);
+    connect(client, &AbstractClient::windowClosed, this,
         [this, client] {
             uninhibit(client);
             auto it = m_connections.find(client);
@@ -94,6 +94,10 @@ void IdleInhibition::uninhibit(AbstractClient *client)
 
 void IdleInhibition::update(AbstractClient *client)
 {
+    if (client->isInternal()) {
+        return;
+    }
+
     // TODO: Don't honor the idle inhibitor object if the shell client is not
     // on the current activity (currently, activities are not supported).
     const bool visible = client->isShown(true) && client->isOnCurrentDesktop();

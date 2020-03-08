@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "scene_qpainter.h"
 // KWin
-#include "client.h"
+#include "x11client.h"
 #include "composite.h"
 #include "cursor.h"
 #include "deleted.h"
@@ -29,6 +29,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "toplevel.h"
 #include "platform.h"
 #include "wayland_server.h"
+
+#include <kwineffectquickview.h>
+
 #include <KWayland/Server/buffer_interface.h>
 #include <KWayland/Server/subcompositor_interface.h>
 #include <KWayland/Server/surface_interface.h>
@@ -88,7 +91,7 @@ void SceneQPainter::paintGenericScreen(int mask, ScreenPaintData data)
     m_painter->restore();
 }
 
-qint64 SceneQPainter::paint(QRegion damage, ToplevelList toplevels)
+qint64 SceneQPainter::paint(QRegion damage, QList<Toplevel *> toplevels)
 {
     QElapsedTimer renderTimer;
     renderTimer.start();
@@ -173,6 +176,16 @@ void SceneQPainter::paintCursor()
     kwinApp()->platform()->markCursorAsRendered();
 }
 
+void SceneQPainter::paintEffectQuickView(EffectQuickView *w)
+{
+    QPainter *painter = effects->scenePainter();
+    const QImage buffer = w->bufferAsImage();
+    if (buffer.isNull()) {
+        return;
+    }
+    painter->drawImage(w->geometry(), buffer);
+}
+
 Scene::Window *SceneQPainter::createWindow(Toplevel *toplevel)
 {
     return new SceneQPainter::Window(this, toplevel);
@@ -210,7 +223,6 @@ SceneQPainter::Window::Window(SceneQPainter *scene, Toplevel *c)
 
 SceneQPainter::Window::~Window()
 {
-    discardShape();
 }
 
 static void paintSubSurface(QPainter *painter, const QPoint &pos, QPainterWindowPixmap *pixmap)
@@ -229,6 +241,19 @@ static void paintSubSurface(QPainter *painter, const QPoint &pos, QPainterWindow
         }
         paintSubSurface(painter, p, pixmap);
     }
+}
+
+static bool isXwaylandClient(Toplevel *toplevel)
+{
+    X11Client *client = qobject_cast<X11Client *>(toplevel);
+    if (client) {
+        return true;
+    }
+    Deleted *deleted = qobject_cast<Deleted *>(toplevel);
+    if (deleted) {
+        return deleted->wasX11Client();
+    }
+    return false;
 }
 
 void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintData data)
@@ -268,21 +293,24 @@ void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintDa
         tempImage.fill(Qt::transparent);
         tempPainter.begin(&tempImage);
         tempPainter.save();
-        tempPainter.translate(toplevel->geometry().topLeft() - toplevel->visibleRect().topLeft());
+        tempPainter.translate(toplevel->frameGeometry().topLeft() - toplevel->visibleRect().topLeft());
         painter = &tempPainter;
     }
     renderShadow(painter);
     renderWindowDecorations(painter);
 
     // render content
-    const QRect target = QRect(toplevel->clientPos(), toplevel->clientSize());
-    QSize srcSize = pixmap->image().size();
-    if (pixmap->surface() && pixmap->surface()->scale() == 1 && srcSize != toplevel->clientSize()) {
+    QRect source;
+    QRect target;
+    if (isXwaylandClient(toplevel)) {
         // special case for XWayland windows
-        srcSize = toplevel->clientSize();
+        source = QRect(toplevel->clientPos(), toplevel->clientSize());
+        target = source;
+    } else {
+        source = pixmap->image().rect();
+        target = toplevel->bufferGeometry().translated(-pos());
     }
-    const QRect src = QRect(toplevel->clientPos() + toplevel->clientContentPos(), srcSize);
-    painter->drawImage(target, pixmap->image(), src);
+    painter->drawImage(target, pixmap->image(), source);
 
     // render subsurfaces
     const auto &children = pixmap->children();
@@ -290,7 +318,7 @@ void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintDa
         if (pixmap->subSurface().isNull() || pixmap->subSurface()->surface().isNull() || !pixmap->subSurface()->surface()->isMapped()) {
             continue;
         }
-        paintSubSurface(painter, toplevel->clientPos(), static_cast<QPainterWindowPixmap*>(pixmap));
+        paintSubSurface(painter, bufferOffset(), static_cast<QPainterWindowPixmap*>(pixmap));
     }
 
     if (!opaque) {
@@ -301,7 +329,7 @@ void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintDa
         tempPainter.fillRect(QRect(QPoint(0, 0), toplevel->visibleRect().size()), translucent);
         tempPainter.end();
         painter = scenePainter;
-        painter->drawImage(toplevel->visibleRect().topLeft() - toplevel->geometry().topLeft(), tempImage);
+        painter->drawImage(toplevel->visibleRect().topLeft() - toplevel->frameGeometry().topLeft(), tempImage);
     }
 
     painter->restore();
@@ -402,6 +430,11 @@ void QPainterWindowPixmap::create()
     if (!isValid()) {
         return;
     }
+    if (!surface()) {
+        // That's an internal client.
+        m_image = internalImage();
+        return;
+    }
     // performing deep copy, this could probably be improved
     m_image = buffer()->data().copy();
     if (auto s = surface()) {
@@ -419,6 +452,11 @@ void QPainterWindowPixmap::updateBuffer()
     const auto oldBuffer = buffer();
     WindowPixmap::updateBuffer();
     const auto &b = buffer();
+    if (!surface()) {
+        // That's an internal client.
+        m_image = internalImage();
+        return;
+    }
     if (b.isNull()) {
         m_image = QImage();
         return;

@@ -26,7 +26,7 @@ var morphingEffect = {
         morphingEffect.duration = animationTime(150);
     },
 
-    geometryChange: function (window, oldGeometry) {
+    handleFrameGeometryChanged: function (window, oldGeometry) {
         //only tooltips and notifications
         if (!window.tooltip && !window.notification && !window.criticalNotification) {
             return;
@@ -130,7 +130,7 @@ var morphingEffect = {
 
     init: function () {
         effect.configChanged.connect(morphingEffect.loadConfig);
-        effects.windowGeometryShapeChanged.connect(morphingEffect.geometryChange);
+        effects.windowFrameGeometryChanged.connect(morphingEffect.handleFrameGeometryChanged);
     }
 };
 morphingEffect.init();

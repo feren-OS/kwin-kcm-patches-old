@@ -6,6 +6,7 @@ X-KDE-Library=kwin_mouseclick_config
 X-KDE-ParentComponents=mouseclick
 
 Name=Mouse Click Animation
+Name[ast]=Animación al calcar col mur
 Name[bs]=Animacija klika mišem
 Name[ca]=Animació en fer clic amb el ratolí
 Name[ca@valencia]=Animació de clic de ratolí
@@ -29,7 +30,7 @@ Name[it]=Animazione del clic del mouse
 Name[ja]=マウスクリックアニメーション
 Name[kk]=Тышқанды түрту анимациясы
 Name[ko]=마우스 클릭 애니메이션
-Name[lt]=Spragtelėjimo pele animacija
+Name[lt]=Pelės spustelėjimo animacija
 Name[mr]=माऊस क्लिक ऍनीमेशन
 Name[nb]=Animer ved museklikk
 Name[nds]=Muusklick-Animeren

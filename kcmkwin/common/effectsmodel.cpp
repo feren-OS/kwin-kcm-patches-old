@@ -3,7 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2013 Antonis Tsiapaliokas <kok3rs@gmail.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -50,7 +50,6 @@ static QString translatedCategory(const QString &category)
     static const QVector<QString> knownCategories = {
         QStringLiteral("Accessibility"),
         QStringLiteral("Appearance"),
-        QStringLiteral("Candy"),
         QStringLiteral("Focus"),
         QStringLiteral("Show Desktop Animation"),
         QStringLiteral("Tools"),
@@ -62,7 +61,6 @@ static QString translatedCategory(const QString &category)
     static const QVector<QString> translatedCategories = {
         i18nc("Category of Desktop Effects, used as section header", "Accessibility"),
         i18nc("Category of Desktop Effects, used as section header", "Appearance"),
-        i18nc("Category of Desktop Effects, used as section header", "Candy"),
         i18nc("Category of Desktop Effects, used as section header", "Focus"),
         i18nc("Category of Desktop Effects, used as section header", "Show Desktop Animation"),
         i18nc("Category of Desktop Effects, used as section header", "Tools"),
@@ -557,10 +555,23 @@ void EffectsModel::defaults()
         const auto &effect = m_effects.at(i);
         if (effect.enabledByDefaultFunction && effect.status != Status::EnabledUndeterminded) {
             updateEffectStatus(index(i, 0), Status::EnabledUndeterminded);
-        } else if ((bool)effect.status != effect.enabledByDefault) {
+        } else if (static_cast<bool>(effect.status) != effect.enabledByDefault) {
             updateEffectStatus(index(i, 0), effect.enabledByDefault ? Status::Enabled : Status::Disabled);
         }
     }
+}
+
+bool EffectsModel::isDefaults() const
+{
+    return std::all_of(m_effects.constBegin(), m_effects.constEnd(), [](const EffectData &effect) {
+        if (effect.enabledByDefaultFunction && effect.status != Status::EnabledUndeterminded) {
+            return false;
+        }
+        if (static_cast<bool>(effect.status) != effect.enabledByDefault) {
+            return false;
+        }
+        return true;
+    });
 }
 
 bool EffectsModel::needsSave() const
@@ -647,6 +658,9 @@ void EffectsModel::requestConfigure(const QModelIndex &index, QWindow *transient
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
         module, &KCModule::defaults);
+    connect(module, &KCModule::defaulted, this, [=](bool defaulted) {
+        buttons->button(QDialogButtonBox::RestoreDefaults)->setEnabled(!defaulted);
+    });
 
     auto layout = new QVBoxLayout(dialog);
     layout->addWidget(module);

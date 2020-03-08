@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "aurorae.h"
 #include "auroraetheme.h"
 #include "config-kwin.h"
+#include "kwineffectquickview.h"
 // qml imports
 #include "decorationoptions.h"
 // KDecoration2
@@ -259,25 +260,17 @@ Decoration::Decoration(QObject *parent, const QVariantList &args)
     , m_extendedBorders(nullptr)
     , m_padding(nullptr)
     , m_themeName(s_defaultTheme)
+    , m_view(nullptr)
 {
     m_themeName = findTheme(args);
     Helper::instance().ref();
+    Helper::instance().rootContext()->setContextProperty(QStringLiteral("decorationSettings"), settings().data());
 }
 
 Decoration::~Decoration()
 {
-    if (m_context) {
-        m_context->makeCurrent(m_offscreenSurface.data());
-
-        delete m_renderControl;
-        delete m_view.data();
-        m_fbo.reset();
-
-        m_context->doneCurrent();
-    }
-    // deleted explicitly before our own qobject destructor as "this" is a context property of m_qmlContext,
-    // and changing contextProperties is a bad idea
     delete m_qmlContext;
+    delete m_view;
     Helper::instance().unref();
 }
 
@@ -289,7 +282,6 @@ void Decoration::init()
 
     m_qmlContext = new QQmlContext(Helper::instance().rootContext(), this);
     m_qmlContext->setContextProperty(QStringLiteral("decoration"), this);
-    m_qmlContext->setContextProperty(QStringLiteral("decorationSettings"), s.data());
     auto component = Helper::instance().component(m_themeName);
     if (!component) {
         return;
@@ -324,6 +316,7 @@ void Decoration::init()
         }
         return;
     }
+
     m_item->setParent(m_qmlContext);
 
     QVariant visualParent = property("visualParent");
@@ -331,51 +324,17 @@ void Decoration::init()
         m_item->setParentItem(visualParent.value<QQuickItem*>());
         visualParent.value<QQuickItem*>()->setProperty("drawBackground", false);
     } else {
-        m_renderControl = new QQuickRenderControl(this);
-        m_view = new QQuickWindow(m_renderControl);
-        const bool usingGL = m_view->rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL;
-        m_view->setColor(Qt::transparent);
-        m_view->setFlags(Qt::FramelessWindowHint);
-        if (usingGL) {
-            // first create the context
-            QSurfaceFormat format;
-            format.setSwapBehavior(QSurfaceFormat::SingleBuffer);
-            format.setDepthBufferSize(16);
-            format.setStencilBufferSize(8);
-            m_context.reset(new QOpenGLContext);
-            m_context->setFormat(format);
-            m_context->create();
-            // and the offscreen surface
-            m_offscreenSurface.reset(new QOffscreenSurface);
-            m_offscreenSurface->setFormat(m_context->format());
-            m_offscreenSurface->create();
-
-        }
-
-        // delay rendering a little bit for better performance
-        m_updateTimer.reset(new QTimer);
-        m_updateTimer->setSingleShot(true);
-        m_updateTimer->setInterval(5);
-
-        connect(m_updateTimer.data(), &QTimer::timeout, this, &Decoration::updateBuffer);
-        auto requestUpdate = [this] {
-            if (m_updateTimer->isActive()) {
-                return;
-            }
-            m_updateTimer->start();
-        };
-        connect(m_renderControl, &QQuickRenderControl::renderRequested, this, requestUpdate);
-        connect(m_renderControl, &QQuickRenderControl::sceneChanged, this, requestUpdate);
-
+        m_view = new KWin::EffectQuickView(this, KWin::EffectQuickView::ExportMode::Image);
         m_item->setParentItem(m_view->contentItem());
-
-        if (usingGL) {
-            m_context->makeCurrent(m_offscreenSurface.data());
-            m_renderControl->initialize(m_context.data());
-            m_context->doneCurrent();
-        }
+        auto updateSize = [this]() { m_item->setSize(m_view->contentItem()->size()); };
+        updateSize();
+        connect(m_view->contentItem(), &QQuickItem::widthChanged, m_item, updateSize);
+        connect(m_view->contentItem(), &QQuickItem::heightChanged, m_item, updateSize);
+        connect(m_view, &KWin::EffectQuickView::repaintNeeded, this, &Decoration::updateBuffer);
     }
     setupBorders(m_item);
+
+
     // TODO: Is there a more efficient way to react to border changes?
     auto trackBorders = [this](KWin::Borders *borders) {
         if (!borders) {
@@ -389,19 +348,16 @@ void Decoration::init()
     trackBorders(m_borders);
     trackBorders(m_maximizedBorders);
     if (m_extendedBorders) {
-        auto updateExtendedBorders = [this] {
-            setResizeOnlyBorders(*m_extendedBorders);
-        };
         updateExtendedBorders();
-        connect(m_extendedBorders, &KWin::Borders::leftChanged, this, updateExtendedBorders);
-        connect(m_extendedBorders, &KWin::Borders::rightChanged, this, updateExtendedBorders);
-        connect(m_extendedBorders, &KWin::Borders::topChanged, this, updateExtendedBorders);
-        connect(m_extendedBorders, &KWin::Borders::bottomChanged, this, updateExtendedBorders);
+        connect(m_extendedBorders, &KWin::Borders::leftChanged, this, &Decoration::updateExtendedBorders);
+        connect(m_extendedBorders, &KWin::Borders::rightChanged, this, &Decoration::updateExtendedBorders);
+        connect(m_extendedBorders, &KWin::Borders::topChanged, this, &Decoration::updateExtendedBorders);
+        connect(m_extendedBorders, &KWin::Borders::bottomChanged, this, &Decoration::updateExtendedBorders);
     }
     connect(client().data(), &KDecoration2::DecoratedClient::maximizedChanged, this, &Decoration::updateBorders, Qt::QueuedConnection);
     connect(client().data(), &KDecoration2::DecoratedClient::shadedChanged, this, &Decoration::updateBorders);
     updateBorders();
-    if (!m_view.isNull()) {
+    if (m_view) {
         auto resizeWindow = [this] {
             QRect rect(QPoint(0, 0), size());
             if (m_padding && !client().data()->isMaximized()) {
@@ -451,17 +407,25 @@ void Decoration::updateBorders()
         return;
     }
     setBorders(*b);
+
+    updateExtendedBorders();
 }
 
 void Decoration::paint(QPainter *painter, const QRect &repaintRegion)
 {
     Q_UNUSED(repaintRegion)
+    if (!m_view) {
+        return;
+    }
     painter->fillRect(rect(), Qt::transparent);
-    painter->drawImage(rect(), m_buffer, m_contentRect);
+    painter->drawImage(rect(), m_view->bufferAsImage(), m_contentRect);
 }
 
 void Decoration::updateShadow()
 {
+    if (!m_view) {
+        return;
+    }
     bool updateShadow = false;
     const auto oldShadow = shadow();
     if (m_padding &&
@@ -475,6 +439,8 @@ void Decoration::updateShadow()
                 updateShadow = true;
             }
         }
+        const QImage m_buffer = m_view->bufferAsImage();
+
         QImage img(m_buffer.size(), QImage::Format_ARGB32_Premultiplied);
         img.fill(Qt::transparent);
         QPainter p(&img);
@@ -510,23 +476,11 @@ void Decoration::updateShadow()
     }
 }
 
-
-QMouseEvent Decoration::translatedMouseEvent(QMouseEvent *orig)
-{
-    if (!m_padding || client().data()->isMaximized()) {
-        orig->setAccepted(false);
-        return *orig;
-    }
-    QMouseEvent event(orig->type(), orig->localPos() + QPointF(m_padding->left(), m_padding->top()), orig->button(), orig->buttons(), orig->modifiers());
-    event.setAccepted(false);
-    return event;
-}
-
 void Decoration::hoverEnterEvent(QHoverEvent *event)
 {
     if (m_view) {
         event->setAccepted(false);
-        QCoreApplication::sendEvent(m_view.data(), event);
+        m_view->forwardMouseEvent(event);
     }
     KDecoration2::Decoration::hoverEnterEvent(event);
 }
@@ -534,8 +488,7 @@ void Decoration::hoverEnterEvent(QHoverEvent *event)
 void Decoration::hoverLeaveEvent(QHoverEvent *event)
 {
     if (m_view) {
-        event->setAccepted(false);
-        QCoreApplication::sendEvent(m_view.data(), event);
+       m_view->forwardMouseEvent(event);
     }
     KDecoration2::Decoration::hoverLeaveEvent(event);
 }
@@ -543,10 +496,11 @@ void Decoration::hoverLeaveEvent(QHoverEvent *event)
 void Decoration::hoverMoveEvent(QHoverEvent *event)
 {
     if (m_view) {
-        QMouseEvent mouseEvent(QEvent::MouseMove, event->posF(), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
-        QMouseEvent ev = translatedMouseEvent(&mouseEvent);
-        QCoreApplication::sendEvent(m_view.data(), &ev);
-        event->setAccepted(ev.isAccepted());
+        // turn a hover event into a mouse because we don't follow hovers as we don't think we have focus
+        QMouseEvent cloneEvent(QEvent::MouseMove, event->posF(), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        event->setAccepted(false);
+        m_view->forwardMouseEvent(&cloneEvent);
+        event->setAccepted(cloneEvent.isAccepted());
     }
     KDecoration2::Decoration::hoverMoveEvent(event);
 }
@@ -554,9 +508,7 @@ void Decoration::hoverMoveEvent(QHoverEvent *event)
 void Decoration::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_view) {
-        QMouseEvent ev = translatedMouseEvent(event);
-        QCoreApplication::sendEvent(m_view.data(), &ev);
-        event->setAccepted(ev.isAccepted());
+        m_view->forwardMouseEvent(event);
     }
     KDecoration2::Decoration::mouseMoveEvent(event);
 }
@@ -564,16 +516,14 @@ void Decoration::mouseMoveEvent(QMouseEvent *event)
 void Decoration::mousePressEvent(QMouseEvent *event)
 {
     if (m_view) {
-        QMouseEvent ev = translatedMouseEvent(event);
-        QCoreApplication::sendEvent(m_view.data(), &ev);
-        if (ev.button() == Qt::LeftButton) {
+        m_view->forwardMouseEvent(event);
+        if (event->button() == Qt::LeftButton) {
             if (!m_doubleClickTimer.hasExpired(QGuiApplication::styleHints()->mouseDoubleClickInterval())) {
-                QMouseEvent dc(QEvent::MouseButtonDblClick, ev.localPos(), ev.windowPos(), ev.screenPos(), ev.button(), ev.buttons(), ev.modifiers());
-                QCoreApplication::sendEvent(m_view.data(), &dc);
+                QMouseEvent dc(QEvent::MouseButtonDblClick, event->localPos(), event->windowPos(), event->screenPos(), event->button(), event->buttons(), event->modifiers());
+                m_view->forwardMouseEvent(&dc);
             }
         }
         m_doubleClickTimer.invalidate();
-        event->setAccepted(ev.isAccepted());
     }
     KDecoration2::Decoration::mousePressEvent(event);
 }
@@ -581,10 +531,8 @@ void Decoration::mousePressEvent(QMouseEvent *event)
 void Decoration::mouseReleaseEvent(QMouseEvent *event)
 {
     if (m_view) {
-        QMouseEvent ev = translatedMouseEvent(event);
-        QCoreApplication::sendEvent(m_view.data(), &ev);
-        event->setAccepted(ev.isAccepted());
-        if (ev.isAccepted() && ev.button() == Qt::LeftButton) {
+        m_view->forwardMouseEvent(event);
+        if (event->isAccepted() && event->button() == Qt::LeftButton) {
             m_doubleClickTimer.start();
         }
     }
@@ -607,38 +555,40 @@ void Decoration::installTitleItem(QQuickItem *item)
     connect(item, &QQuickItem::yChanged, this, update);
 }
 
-void Decoration::updateBuffer()
+void Decoration::updateExtendedBorders()
 {
-    Q_ASSERT(m_view);
-    const bool usingGL = m_view->rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL;
-    if (usingGL) {
-        Q_ASSERT(m_view->size().isValid());
-        if (!m_context->makeCurrent(m_offscreenSurface.data())) {
-            return;
+    // extended sizes
+    const int extSize = settings()->largeSpacing();
+    int extLeft = m_extendedBorders->left();
+    int extRight = m_extendedBorders->right();
+    int extBottom = m_extendedBorders->bottom();
+
+    if (settings()->borderSize() == KDecoration2::BorderSize::None) {
+        if (!client().data()->isMaximizedHorizontally()) {
+            extLeft = qMax(m_extendedBorders->left(), extSize);
+            extRight = qMax(m_extendedBorders->right(), extSize);
         }
-        if (m_fbo.isNull() || m_fbo->size() != m_view->size()) {
-            m_fbo.reset(new QOpenGLFramebufferObject(m_view->size(), QOpenGLFramebufferObject::CombinedDepthStencil));
-            if (!m_fbo->isValid()) {
-                qCWarning(AURORAE) << "Creating FBO as render target failed";
-                m_fbo.reset();
-                return;
-            }
+        if (!client().data()->isMaximizedVertically()) {
+            extBottom = qMax(m_extendedBorders->bottom(), extSize);
         }
-        m_view->setRenderTarget(m_fbo.data());
-        m_view->resetOpenGLState();
+
+    } else if (settings()->borderSize() == KDecoration2::BorderSize::NoSides && !client().data()->isMaximizedHorizontally() ) {
+        extLeft = qMax(m_extendedBorders->left(), extSize);
+        extRight = qMax(m_extendedBorders->right(), extSize);
     }
 
-    m_buffer = m_renderControl->grab();
+    setResizeOnlyBorders(QMargins(extLeft, 0, extRight, extBottom));
+}
 
-    m_contentRect = QRect(QPoint(0, 0), m_buffer.size());
+void Decoration::updateBuffer()
+{
+    m_contentRect = QRect(QPoint(0, 0), m_view->bufferAsImage().size());
     if (m_padding &&
             (m_padding->left() > 0 || m_padding->top() > 0 || m_padding->right() > 0 || m_padding->bottom() > 0) &&
             !client().data()->isMaximized()) {
         m_contentRect = m_contentRect.adjusted(m_padding->left(), m_padding->top(), -m_padding->right(), -m_padding->bottom());
     }
     updateShadow();
-
-    QOpenGLFramebufferObject::bindDefault();
     update();
 }
 

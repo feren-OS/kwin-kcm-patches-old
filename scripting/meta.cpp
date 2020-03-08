@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 
 #include "meta.h"
-#include "client.h"
+#include "x11client.h"
 
 #include <QtScript/QScriptEngine>
 
@@ -110,7 +110,7 @@ void AbstractClient::fromScriptValue(const QScriptValue &value, KWin::AbstractCl
     client = qobject_cast<KWin::AbstractClient *>(value.toQObject());
 }
 
-QScriptValue Client::toScriptValue(QScriptEngine *eng, const KClientRef &client)
+QScriptValue X11Client::toScriptValue(QScriptEngine *eng, const KClientRef &client)
 {
     return eng->newQObject(client, QScriptEngine::QtOwnership,
                            QScriptEngine::ExcludeChildObjects |
@@ -119,9 +119,9 @@ QScriptValue Client::toScriptValue(QScriptEngine *eng, const KClientRef &client)
                            QScriptEngine::AutoCreateDynamicProperties);
 }
 
-void Client::fromScriptValue(const QScriptValue &value, KWin::Client* &client)
+void X11Client::fromScriptValue(const QScriptValue &value, KWin::X11Client *&client)
 {
-    client = qobject_cast<KWin::Client*>(value.toQObject());
+    client = qobject_cast<KWin::X11Client *>(value.toQObject());
 }
 
 QScriptValue Toplevel::toScriptValue(QScriptEngine *eng, const KToplevelRef &client)
@@ -145,12 +145,12 @@ void KWin::MetaScripting::registration(QScriptEngine* eng)
     qScriptRegisterMetaType<QSize>(eng, Size::toScriptValue, Size::fromScriptValue);
     qScriptRegisterMetaType<QRect>(eng, Rect::toScriptValue, Rect::fromScriptValue);
     qScriptRegisterMetaType<KAbstractClientRef>(eng, AbstractClient::toScriptValue, AbstractClient::fromScriptValue);
-    qScriptRegisterMetaType<KClientRef>(eng, Client::toScriptValue, Client::fromScriptValue);
+    qScriptRegisterMetaType<KClientRef>(eng, X11Client::toScriptValue, X11Client::fromScriptValue);
     qScriptRegisterMetaType<KToplevelRef>(eng, Toplevel::toScriptValue, Toplevel::fromScriptValue);
 
     qScriptRegisterSequenceMetaType<QStringList>(eng);
     qScriptRegisterSequenceMetaType< QList<KWin::AbstractClient*> >(eng);
-    qScriptRegisterSequenceMetaType< QList<KWin::Client*> >(eng);
+    qScriptRegisterSequenceMetaType< QList<KWin::X11Client *> >(eng);
 }
 
 QScriptValue KWin::MetaScripting::configExists(QScriptContext* ctx, QScriptEngine* eng)

@@ -18,11 +18,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "cursor.h"
 #include "keyboard_input.h"
 #include "platform.h"
 #include "pointer_input.h"
-#include "shell_client.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -30,7 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/keyboard.h>
 #include <KWayland/Client/pointer.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/seat.h>
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/surface.h>
@@ -64,7 +63,6 @@ private Q_SLOTS:
 
 void TestWindowSelection::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -99,7 +97,7 @@ void TestWindowSelection::testSelectOnWindowPointer()
 {
     // this test verifies window selection through pointer works
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<Keyboard> keyboard(Test::waylandSeat()->createKeyboard());
     QSignalSpy pointerEnteredSpy(pointer.data(), &Pointer::entered);
@@ -114,7 +112,7 @@ void TestWindowSelection::testSelectOnWindowPointer()
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(keyboardEnteredSpy.wait());
-    KWin::Cursor::setPos(client->geometry().center());
+    KWin::Cursor::setPos(client->frameGeometry().center());
     QCOMPARE(input()->pointer()->focus().data(), client);
     QVERIFY(pointerEnteredSpy.wait());
 
@@ -185,7 +183,7 @@ void TestWindowSelection::testSelectOnWindowKeyboard()
 {
     // this test verifies window selection through keyboard key
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<Keyboard> keyboard(Test::waylandSeat()->createKeyboard());
     QSignalSpy pointerEnteredSpy(pointer.data(), &Pointer::entered);
@@ -200,7 +198,7 @@ void TestWindowSelection::testSelectOnWindowKeyboard()
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(keyboardEnteredSpy.wait());
-    QVERIFY(!client->geometry().contains(KWin::Cursor::pos()));
+    QVERIFY(!client->frameGeometry().contains(KWin::Cursor::pos()));
 
     Toplevel *selectedWindow = nullptr;
     auto callback = [&selectedWindow] (Toplevel *t) {
@@ -224,16 +222,16 @@ void TestWindowSelection::testSelectOnWindowKeyboard()
         kwinApp()->platform()->keyboardKeyPressed(key, timestamp++);
         kwinApp()->platform()->keyboardKeyReleased(key, timestamp++);
     };
-    while (KWin::Cursor::pos().x() >= client->geometry().x() + client->geometry().width()) {
+    while (KWin::Cursor::pos().x() >= client->frameGeometry().x() + client->frameGeometry().width()) {
         keyPress(KEY_LEFT);
     }
-    while (KWin::Cursor::pos().x() <= client->geometry().x()) {
+    while (KWin::Cursor::pos().x() <= client->frameGeometry().x()) {
         keyPress(KEY_RIGHT);
     }
-    while (KWin::Cursor::pos().y() <= client->geometry().y()) {
+    while (KWin::Cursor::pos().y() <= client->frameGeometry().y()) {
         keyPress(KEY_DOWN);
     }
-    while (KWin::Cursor::pos().y() >= client->geometry().y() + client->geometry().height()) {
+    while (KWin::Cursor::pos().y() >= client->frameGeometry().y() + client->frameGeometry().height()) {
         keyPress(KEY_UP);
     }
     QFETCH(qint32, key);
@@ -262,7 +260,7 @@ void TestWindowSelection::testSelectOnWindowTouch()
     QSignalSpy touchCanceledSpy(touch.data(), &Touch::sequenceCanceled);
     QVERIFY(touchCanceledSpy.isValid());
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
@@ -279,7 +277,7 @@ void TestWindowSelection::testSelectOnWindowTouch()
 
     // simulate touch down
     quint32 timestamp = 0;
-    kwinApp()->platform()->touchDown(0, client->geometry().center(), timestamp++);
+    kwinApp()->platform()->touchDown(0, client->frameGeometry().center(), timestamp++);
     QVERIFY(!selectedWindow);
     kwinApp()->platform()->touchUp(0, timestamp++);
     QCOMPARE(input()->isSelectingWindow(), false);
@@ -288,16 +286,16 @@ void TestWindowSelection::testSelectOnWindowTouch()
     // with movement
     selectedWindow = nullptr;
     kwinApp()->platform()->startInteractiveWindowSelection(callback);
-    kwinApp()->platform()->touchDown(0, client->geometry().bottomRight() + QPoint(20, 20), timestamp++);
+    kwinApp()->platform()->touchDown(0, client->frameGeometry().bottomRight() + QPoint(20, 20), timestamp++);
     QVERIFY(!selectedWindow);
-    kwinApp()->platform()->touchMotion(0, client->geometry().bottomRight() - QPoint(1, 1), timestamp++);
+    kwinApp()->platform()->touchMotion(0, client->frameGeometry().bottomRight() - QPoint(1, 1), timestamp++);
     QVERIFY(!selectedWindow);
     kwinApp()->platform()->touchUp(0, timestamp++);
     QCOMPARE(selectedWindow, client);
     QCOMPARE(input()->isSelectingWindow(), false);
 
     // it cancels active touch sequence on the window
-    kwinApp()->platform()->touchDown(0, client->geometry().center(), timestamp++);
+    kwinApp()->platform()->touchDown(0, client->frameGeometry().center(), timestamp++);
     QVERIFY(touchStartedSpy.wait());
     selectedWindow = nullptr;
     kwinApp()->platform()->startInteractiveWindowSelection(callback);
@@ -307,7 +305,7 @@ void TestWindowSelection::testSelectOnWindowTouch()
     // this touch up does not yet select the window, it was started prior to the selection
     kwinApp()->platform()->touchUp(0, timestamp++);
     QVERIFY(!selectedWindow);
-    kwinApp()->platform()->touchDown(0, client->geometry().center(), timestamp++);
+    kwinApp()->platform()->touchDown(0, client->frameGeometry().center(), timestamp++);
     kwinApp()->platform()->touchUp(0, timestamp++);
     QCOMPARE(selectedWindow, client);
     QCOMPARE(input()->isSelectingWindow(), false);
@@ -320,7 +318,7 @@ void TestWindowSelection::testCancelOnWindowPointer()
 {
     // this test verifies that window selection cancels through right button click
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<Keyboard> keyboard(Test::waylandSeat()->createKeyboard());
     QSignalSpy pointerEnteredSpy(pointer.data(), &Pointer::entered);
@@ -335,7 +333,7 @@ void TestWindowSelection::testCancelOnWindowPointer()
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(keyboardEnteredSpy.wait());
-    KWin::Cursor::setPos(client->geometry().center());
+    KWin::Cursor::setPos(client->frameGeometry().center());
     QCOMPARE(input()->pointer()->focus().data(), client);
     QVERIFY(pointerEnteredSpy.wait());
 
@@ -379,7 +377,7 @@ void TestWindowSelection::testCancelOnWindowKeyboard()
 {
     // this test verifies that cancel window selection through escape key works
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<Keyboard> keyboard(Test::waylandSeat()->createKeyboard());
     QSignalSpy pointerEnteredSpy(pointer.data(), &Pointer::entered);
@@ -394,7 +392,7 @@ void TestWindowSelection::testCancelOnWindowKeyboard()
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(keyboardEnteredSpy.wait());
-    KWin::Cursor::setPos(client->geometry().center());
+    KWin::Cursor::setPos(client->frameGeometry().center());
     QCOMPARE(input()->pointer()->focus().data(), client);
     QVERIFY(pointerEnteredSpy.wait());
 
@@ -438,7 +436,7 @@ void TestWindowSelection::testSelectPointPointer()
 {
     // this test verifies point selection through pointer works
     QScopedPointer<Surface> surface(Test::createSurface());
-    QScopedPointer<ShellSurface> shellSurface(Test::createShellSurface(surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<Keyboard> keyboard(Test::waylandSeat()->createKeyboard());
     QSignalSpy pointerEnteredSpy(pointer.data(), &Pointer::entered);
@@ -453,7 +451,7 @@ void TestWindowSelection::testSelectPointPointer()
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(keyboardEnteredSpy.wait());
-    KWin::Cursor::setPos(client->geometry().center());
+    KWin::Cursor::setPos(client->frameGeometry().center());
     QCOMPARE(input()->pointer()->focus().data(), client);
     QVERIFY(pointerEnteredSpy.wait());
 

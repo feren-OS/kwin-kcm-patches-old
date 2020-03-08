@@ -32,6 +32,7 @@ class QTimer;
 namespace KWin
 {
 
+class ClockSkewNotifier;
 class Workspace;
 
 namespace ColorCorrect
@@ -126,6 +127,78 @@ public:
      */
     void toggle();
 
+    /**
+     * Returns @c true if the night color manager is blocked; otherwise @c false.
+     */
+    bool isInhibited() const;
+
+    /**
+     * Temporarily blocks the night color manager.
+     *
+     * After calling this method, the screen color temperature will be reverted
+     * back to 6500C. When you're done, call uninhibit() method.
+     */
+    void inhibit();
+
+    /**
+     * Attempts to unblock the night color manager.
+     */
+    void uninhibit();
+
+    /**
+     * Returns @c true if Night Color is enabled; otherwise @c false.
+     */
+    bool isEnabled() const;
+
+    /**
+     * Returns @c true if Night Color is currently running; otherwise @c false.
+     */
+    bool isRunning() const;
+
+    /**
+     * Returns @c true if Night Color is supported by platform; otherwise @c false.
+     */
+    bool isAvailable() const;
+
+    /**
+     * Returns the current screen color temperature.
+     */
+    int currentTemperature() const;
+
+    /**
+     * Returns the target screen color temperature.
+     */
+    int targetTemperature() const;
+
+    /**
+     * Returns the mode in which Night Color is operating.
+     */
+    NightColorMode mode() const;
+
+    /**
+     * Returns the datetime that specifies when the previous screen color temperature transition
+     * had started. Notice that when Night Color operates in the Constant mode, the returned date
+     * time object is not valid.
+     */
+    QDateTime previousTransitionDateTime() const;
+
+    /**
+     * Returns the duration of the previous screen color temperature transition, in milliseconds.
+     */
+    qint64 previousTransitionDuration() const;
+
+    /**
+     * Returns the datetime that specifies when the next screen color temperature transition will
+     * start. Notice that when Night Color operates in the Constant mode, the returned date time
+     * object is not valid.
+     */
+    QDateTime scheduledTransitionDateTime() const;
+
+    /**
+     * Returns the duration of the next screen color temperature transition, in milliseconds.
+     */
+    qint64 scheduledTransitionDuration() const;
+
     // for auto tests
     void reparseConfigAndReset();
 
@@ -135,6 +208,46 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void configChange(QHash<QString, QVariant> data);
+
+    /**
+     * Emitted whenever the night color manager is blocked or unblocked.
+     */
+    void inhibitedChanged();
+
+    /**
+     * Emitted whenever the night color manager is enabled or disabled.
+     */
+    void enabledChanged();
+
+    /**
+     * Emitted whenever the night color manager starts or stops running.
+     */
+    void runningChanged();
+
+    /**
+     * Emitted whenever the current screen color temperature has changed.
+     */
+    void currentTemperatureChanged();
+
+    /**
+     * Emitted whenever the target screen color temperature has changed.
+     */
+    void targetTemperatureChanged();
+
+    /**
+     * Emitted whenver the operation mode has changed.
+     */
+    void modeChanged();
+
+    /**
+     * Emitted whenever the timings of the previous color temperature transition have changed.
+     */
+    void previousTransitionTimingsChanged();
+
+    /**
+     * Emitted whenever the timings of the next color temperature transition have changed.
+     */
+    void scheduledTransitionTimingsChanged();
 
 private:
     void initShortcuts();
@@ -153,17 +266,30 @@ private:
      */
     void resetSlowUpdateTimer();
 
-    void updateSunTimings(bool force);
+    void updateTargetTemperature();
+    void updateTransitionTimings(bool force);
     DateTimes getSunTimings(const QDateTime &dateTime, double latitude, double longitude, bool morning) const;
     bool checkAutomaticSunTimings() const;
     bool daylight() const;
 
     void commitGammaRamps(int temperature);
 
-    ColorCorrectDBusInterface *m_iface;
+    void setEnabled(bool enabled);
+    void setRunning(bool running);
+    void setCurrentTemperature(int temperature);
+    void setMode(NightColorMode mode);
 
-    bool m_active;
+    ColorCorrectDBusInterface *m_iface;
+    ClockSkewNotifier *m_skewNotifier;
+
+    // Specifies whether Night Color is enabled.
+    bool m_active = false;
+
+    // Specifies whether Night Color is currently running.
     bool m_running = false;
+
+    // Specifies whether Night Color is inhibited globally.
+    bool m_isGloballyInhibited = false;
 
     NightColorMode m_mode = NightColorMode::Automatic;
 
@@ -188,10 +314,12 @@ private:
     QTimer *m_quickAdjustTimer = nullptr;
 
     int m_currentTemp = NEUTRAL_TEMPERATURE;
+    int m_targetTemperature = NEUTRAL_TEMPERATURE;
     int m_dayTargetTemp = NEUTRAL_TEMPERATURE;
     int m_nightTargetTemp = DEFAULT_NIGHT_TEMPERATURE;
 
     int m_failedCommitAttempts = 0;
+    int m_inhibitReferenceCount = 0;
 
     // The Workspace class needs to call initShortcuts during initialization.
     friend class KWin::Workspace;

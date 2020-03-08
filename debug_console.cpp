@@ -19,11 +19,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "debug_console.h"
 #include "composite.h"
-#include "client.h"
+#include "x11client.h"
 #include "input_event.h"
+#include "internal_client.h"
 #include "main.h"
 #include "scene.h"
-#include "shell_client.h"
 #include "unmanaged.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -288,7 +288,12 @@ void DebugConsoleFilter::keyEvent(KeyEvent *event)
     };
     text.append(timestampRow(event->timestamp()));
     text.append(tableRow(i18nc("Whether the event is an automatic key repeat", "Repeat"), event->isAutoRepeat()));
+
+    const auto keyMetaObject = Qt::qt_getEnumMetaObject(Qt::Key());
+    const auto enumerator = keyMetaObject->enumerator(keyMetaObject->indexOfEnumerator("Key"));
     text.append(tableRow(i18nc("The code as read from the input device", "Scan code"), event->nativeScanCode()));
+    text.append(tableRow(i18nc("Key according to Qt", "Qt::Key code"),
+                         enumerator.valueToKey(event->key())));
     text.append(tableRow(i18nc("The translated code to an Xkb symbol", "Xkb symbol"), event->nativeVirtualKey()));
     text.append(tableRow(i18nc("The translated code interpreted as text", "Utf8"), event->text()));
     text.append(tableRow(i18nc("The currently active modifiers", "Modifiers"), modifiersToString()));
@@ -476,6 +481,83 @@ void DebugConsoleFilter::switchEvent(SwitchEvent *event)
     }
     text.append(tableRow(i18nc("State of a hardware switch (on/off)", "State"), switchState));
     text.append(s_tableEnd);
+
+    m_textEdit->insertHtml(text);
+    m_textEdit->ensureCursorVisible();
+}
+
+void DebugConsoleFilter::tabletToolEvent(QTabletEvent *event)
+{
+    QString typeString;
+    {
+        QDebug d(&typeString);
+        d << event->type();
+    }
+
+    QString text = s_hr + s_tableStart + tableHeaderRow(i18n("Tablet Tool"))
+                 + tableRow(i18n("EventType"), typeString)
+                 + tableRow(i18n("Position"),
+                            QStringLiteral("%1,%2").arg(event->pos().x()).arg(event->pos().y()))
+                 + tableRow(i18n("Tilt"),
+                            QStringLiteral("%1,%2").arg(event->xTilt()).arg(event->yTilt()))
+                 + tableRow(i18n("Rotation"), QString::number(event->rotation()))
+                 + tableRow(i18n("Pressure"), QString::number(event->pressure()))
+                 + tableRow(i18n("Buttons"), QString::number(event->buttons()))
+                 + tableRow(i18n("Modifiers"), QString::number(event->modifiers()))
+                 + s_tableEnd;
+
+    m_textEdit->insertHtml(text);
+    m_textEdit->ensureCursorVisible();
+}
+
+void DebugConsoleFilter::tabletToolButtonEvent(const QSet<uint> &pressedButtons)
+{
+    QString buttons;
+    for (uint b : pressedButtons) {
+        buttons += QString::number(b) + ' ';
+    }
+    QString text = s_hr + s_tableStart + tableHeaderRow(i18n("Tablet Tool Button"))
+                 + tableRow(i18n("Pressed Buttons"), buttons)
+                 + s_tableEnd;
+
+    m_textEdit->insertHtml(text);
+    m_textEdit->ensureCursorVisible();
+}
+
+void DebugConsoleFilter::tabletPadButtonEvent(const QSet<uint> &pressedButtons)
+{
+    QString buttons;
+    for (uint b : pressedButtons) {
+        buttons += QString::number(b) + ' ';
+    }
+    QString text = s_hr + s_tableStart
+                 + tableHeaderRow(i18n("Tablet Pad Button"))
+                 + tableRow(i18n("Pressed Buttons"), buttons)
+                 + s_tableEnd;
+
+    m_textEdit->insertHtml(text);
+    m_textEdit->ensureCursorVisible();
+}
+
+void DebugConsoleFilter::tabletPadStripEvent(int number, int position, bool isFinger)
+{
+    QString text = s_hr + s_tableStart + tableHeaderRow(i18n("Tablet Pad Strip"))
+                 + tableRow(i18n("Number"), number)
+                 + tableRow(i18n("Position"), position)
+                 + tableRow(i18n("isFinger"), isFinger)
+                 + s_tableEnd;
+
+    m_textEdit->insertHtml(text);
+    m_textEdit->ensureCursorVisible();
+}
+
+void DebugConsoleFilter::tabletPadRingEvent(int number, int position, bool isFinger)
+{
+    QString text = s_hr + s_tableStart + tableHeaderRow(i18n("Tablet Pad Ring"))
+                 + tableRow(i18n("Number"), number)
+                 + tableRow(i18n("Position"), position)
+                 + tableRow(i18n("isFinger"), isFinger)
+                 + s_tableEnd;
 
     m_textEdit->insertHtml(text);
     m_textEdit->ensureCursorVisible();
@@ -762,7 +844,7 @@ QString DebugConsoleDelegate::displayText(const QVariant &value, const QLocale &
 static const int s_x11ClientId = 1;
 static const int s_x11UnmanagedId = 2;
 static const int s_waylandClientId = 3;
-static const int s_waylandInternalId = 4;
+static const int s_workspaceInternalId = 4;
 static const quint32 s_propertyBitMask = 0xFFFF0000;
 static const quint32 s_clientBitMask   = 0x0000FFFF;
 static const quint32 s_idDistance = 10000;
@@ -793,26 +875,17 @@ DebugConsoleModel::DebugConsoleModel(QObject *parent)
     if (waylandServer()) {
         const auto clients = waylandServer()->clients();
         for (auto c : clients) {
-            m_shellClients.append(c);
-        }
-        const auto internals = waylandServer()->internalClients();
-        for (auto c : internals) {
-            m_internalClients.append(c);
+            m_waylandClients.append(c);
         }
         // TODO: that only includes windows getting shown, not those which are only created
         connect(waylandServer(), &WaylandServer::shellClientAdded, this,
-            [this] (ShellClient *c) {
-                if (c->isInternal()) {
-                    add(s_waylandInternalId -1, m_internalClients, c);
-                } else {
-                    add(s_waylandClientId -1, m_shellClients, c);
-                }
+            [this] (AbstractClient *c) {
+                add(s_waylandClientId -1, m_waylandClients, c);
             }
         );
         connect(waylandServer(), &WaylandServer::shellClientRemoved, this,
-            [this] (ShellClient *c) {
-                remove(s_waylandInternalId -1, m_internalClients, c);
-                remove(s_waylandClientId -1, m_shellClients, c);
+            [this] (AbstractClient *c) {
+                remove(s_waylandClientId -1, m_waylandClients, c);
             }
         );
     }
@@ -825,13 +898,13 @@ DebugConsoleModel::DebugConsoleModel(QObject *parent)
         m_x11Clients.append(c);
     }
     connect(workspace(), &Workspace::clientAdded, this,
-        [this] (Client *c) {
+        [this] (X11Client *c) {
             add(s_x11ClientId -1, m_x11Clients, c);
         }
     );
     connect(workspace(), &Workspace::clientRemoved, this,
         [this] (AbstractClient *ac) {
-            Client *c = qobject_cast<Client*>(ac);
+            X11Client *c = qobject_cast<X11Client *>(ac);
             if (!c) {
                 return;
             }
@@ -851,6 +924,19 @@ DebugConsoleModel::DebugConsoleModel(QObject *parent)
     connect(workspace(), &Workspace::unmanagedRemoved, this,
         [this] (Unmanaged *u) {
             remove(s_x11UnmanagedId -1, m_unmanageds, u);
+        }
+    );
+    for (InternalClient *client : workspace()->internalClients()) {
+        m_internalClients.append(client);
+    }
+    connect(workspace(), &Workspace::internalClientAdded, this,
+        [this](InternalClient *client) {
+            add(s_workspaceInternalId -1, m_internalClients, client);
+        }
+    );
+    connect(workspace(), &Workspace::internalClientRemoved, this,
+        [this](InternalClient *client) {
+            remove(s_workspaceInternalId -1, m_internalClients, client);
         }
     );
 }
@@ -889,8 +975,8 @@ int DebugConsoleModel::rowCount(const QModelIndex &parent) const
     case s_x11UnmanagedId:
         return m_unmanageds.count();
     case s_waylandClientId:
-        return m_shellClients.count();
-    case s_waylandInternalId:
+        return m_waylandClients.count();
+    case s_workspaceInternalId:
         return m_internalClients.count();
     default:
         break;
@@ -906,8 +992,8 @@ int DebugConsoleModel::rowCount(const QModelIndex &parent) const
     } else if (parent.internalId() < s_idDistance * (s_x11UnmanagedId + 1)) {
         return propertyCount(parent, &DebugConsoleModel::unmanaged);
     } else if (parent.internalId() < s_idDistance * (s_waylandClientId + 1)) {
-        return propertyCount(parent, &DebugConsoleModel::shellClient);
-    } else if (parent.internalId() < s_idDistance * (s_waylandInternalId + 1)) {
+        return propertyCount(parent, &DebugConsoleModel::waylandClient);
+    } else if (parent.internalId() < s_idDistance * (s_workspaceInternalId + 1)) {
         return propertyCount(parent, &DebugConsoleModel::internalClient);
     }
 
@@ -958,9 +1044,9 @@ QModelIndex DebugConsoleModel::index(int row, int column, const QModelIndex &par
     case s_x11UnmanagedId:
         return indexForClient(row, column, m_unmanageds, s_x11UnmanagedId);
     case s_waylandClientId:
-        return indexForClient(row, column, m_shellClients, s_waylandClientId);
-    case s_waylandInternalId:
-        return indexForClient(row, column, m_internalClients, s_waylandInternalId);
+        return indexForClient(row, column, m_waylandClients, s_waylandClientId);
+    case s_workspaceInternalId:
+        return indexForClient(row, column, m_internalClients, s_workspaceInternalId);
     default:
         break;
     }
@@ -971,8 +1057,8 @@ QModelIndex DebugConsoleModel::index(int row, int column, const QModelIndex &par
     } else if (parent.internalId() < s_idDistance * (s_x11UnmanagedId + 1)) {
         return indexForProperty(row, column, parent, &DebugConsoleModel::unmanaged);
     } else if (parent.internalId() < s_idDistance * (s_waylandClientId + 1)) {
-        return indexForProperty(row, column, parent, &DebugConsoleModel::shellClient);
-    } else if (parent.internalId() < s_idDistance * (s_waylandInternalId + 1)) {
+        return indexForProperty(row, column, parent, &DebugConsoleModel::waylandClient);
+    } else if (parent.internalId() < s_idDistance * (s_workspaceInternalId + 1)) {
         return indexForProperty(row, column, parent, &DebugConsoleModel::internalClient);
     }
 
@@ -981,7 +1067,7 @@ QModelIndex DebugConsoleModel::index(int row, int column, const QModelIndex &par
 
 QModelIndex DebugConsoleModel::parent(const QModelIndex &child) const
 {
-    if (child.internalId() <= s_waylandInternalId) {
+    if (child.internalId() <= s_workspaceInternalId) {
         return QModelIndex();
     }
     if (child.internalId() & s_propertyBitMask) {
@@ -993,8 +1079,8 @@ QModelIndex DebugConsoleModel::parent(const QModelIndex &child) const
             return createIndex(parentId - (s_idDistance * s_x11UnmanagedId), 0, parentId);
         } else if (parentId < s_idDistance * (s_waylandClientId + 1)) {
             return createIndex(parentId - (s_idDistance * s_waylandClientId), 0, parentId);
-        } else if (parentId < s_idDistance * (s_waylandInternalId + 1)) {
-            return createIndex(parentId - (s_idDistance * s_waylandInternalId), 0, parentId);
+        } else if (parentId < s_idDistance * (s_workspaceInternalId + 1)) {
+            return createIndex(parentId - (s_idDistance * s_workspaceInternalId), 0, parentId);
         }
         return QModelIndex();
     }
@@ -1004,8 +1090,8 @@ QModelIndex DebugConsoleModel::parent(const QModelIndex &child) const
         return createIndex(s_x11UnmanagedId -1, 0, s_x11UnmanagedId);
     } else if (child.internalId() < s_idDistance * (s_waylandClientId + 1)) {
         return createIndex(s_waylandClientId -1, 0, s_waylandClientId);
-    } else if (child.internalId() < s_idDistance * (s_waylandInternalId + 1)) {
-        return createIndex(s_waylandInternalId -1, 0, s_waylandInternalId);
+    } else if (child.internalId() < s_idDistance * (s_workspaceInternalId + 1)) {
+        return createIndex(s_workspaceInternalId -1, 0, s_workspaceInternalId);
     }
     return QModelIndex();
 }
@@ -1098,7 +1184,7 @@ QVariant DebugConsoleModel::data(const QModelIndex &index, int role) const
             return i18n("X11 Unmanaged Windows");
         case s_waylandClientId:
             return i18n("Wayland Windows");
-        case s_waylandInternalId:
+        case s_workspaceInternalId:
             return i18n("Internal Windows");
         default:
             return QVariant();
@@ -1108,11 +1194,11 @@ QVariant DebugConsoleModel::data(const QModelIndex &index, int role) const
         if (index.column() >= 2 || role != Qt::DisplayRole) {
             return QVariant();
         }
-        if (ShellClient *c = shellClient(index)) {
+        if (AbstractClient *c = waylandClient(index)) {
             return propertyData(c, index, role);
-        } else if (ShellClient *c = internalClient(index)) {
+        } else if (InternalClient *c = internalClient(index)) {
             return propertyData(c, index, role);
-        } else if (Client *c = x11Client(index)) {
+        } else if (X11Client *c = x11Client(index)) {
             return propertyData(c, index, role);
         } else if (Unmanaged *u = unmanaged(index)) {
             return propertyData(u, index, role);
@@ -1135,8 +1221,8 @@ QVariant DebugConsoleModel::data(const QModelIndex &index, int role) const
             break;
         }
         case s_waylandClientId:
-            return clientData(index, role, m_shellClients);
-        case s_waylandInternalId:
+            return clientData(index, role, m_waylandClients);
+        case s_workspaceInternalId:
             return clientData(index, role, m_internalClients);
         default:
             break;
@@ -1156,17 +1242,17 @@ static T *clientForIndex(const QModelIndex &index, const QVector<T*> &clients, i
     return clients.at(row);
 }
 
-ShellClient *DebugConsoleModel::shellClient(const QModelIndex &index) const
+AbstractClient *DebugConsoleModel::waylandClient(const QModelIndex &index) const
 {
-    return clientForIndex(index, m_shellClients, s_waylandClientId);
+    return clientForIndex(index, m_waylandClients, s_waylandClientId);
 }
 
-ShellClient *DebugConsoleModel::internalClient(const QModelIndex &index) const
+InternalClient *DebugConsoleModel::internalClient(const QModelIndex &index) const
 {
-    return clientForIndex(index, m_internalClients, s_waylandInternalId);
+    return clientForIndex(index, m_internalClients, s_workspaceInternalId);
 }
 
-Client *DebugConsoleModel::x11Client(const QModelIndex &index) const
+X11Client *DebugConsoleModel::x11Client(const QModelIndex &index) const
 {
     return clientForIndex(index, m_x11Clients, s_x11ClientId);
 }
@@ -1207,11 +1293,8 @@ SurfaceTreeModel::SurfaceTreeModel(QObject *parent)
         connect(c->surface(), &SurfaceInterface::subSurfaceTreeChanged, this, reset);
     }
     if (waylandServer()) {
-        for (auto c : waylandServer()->internalClients()) {
-            connect(c->surface(), &SurfaceInterface::subSurfaceTreeChanged, this, reset);
-        }
         connect(waylandServer(), &WaylandServer::shellClientAdded, this,
-            [this, reset] (ShellClient *c) {
+            [this, reset] (AbstractClient *c) {
                 connect(c->surface(), &SurfaceInterface::subSurfaceTreeChanged, this, reset);
                 reset();
             }
@@ -1255,12 +1338,10 @@ int SurfaceTreeModel::rowCount(const QModelIndex &parent) const
         }
         return 0;
     }
-    const int internalClientsCount = waylandServer() ? waylandServer()->internalClients().count() : 0;
     // toplevel are all windows
     return workspace()->allClientList().count() +
            workspace()->desktopList().count() +
-           workspace()->unmanagedList().count() +
-           internalClientsCount;
+           workspace()->unmanagedList().count();
 }
 
 QModelIndex SurfaceTreeModel::index(int row, int column, const QModelIndex &parent) const
@@ -1297,12 +1378,6 @@ QModelIndex SurfaceTreeModel::index(int row, int column, const QModelIndex &pare
         return createIndex(row, column, unmanaged.at(row-reference)->surface());
     }
     reference += unmanaged.count();
-    if (waylandServer()) {
-        const auto &internal = waylandServer()->internalClients();
-        if (row < reference + internal.count()) {
-            return createIndex(row, column, internal.at(row-reference)->surface());
-        }
-    }
     // not found
     return QModelIndex();
 }
@@ -1359,14 +1434,6 @@ QModelIndex SurfaceTreeModel::parent(const QModelIndex &child) const
             }
         }
         row += unmanaged.count();
-        if (waylandServer()) {
-            const auto &internal = waylandServer()->internalClients();
-            for (int i = 0; i < internal.count(); i++) {
-                if (internal.at(i)->surface() == parent) {
-                    return createIndex(row + i, 0, parent);
-                }
-            }
-        }
     }
     return QModelIndex();
 }

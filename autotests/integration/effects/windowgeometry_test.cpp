@@ -18,12 +18,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "composite.h"
 #include "effects.h"
 #include "effectloader.h"
 #include "cursor.h"
 #include "platform.h"
-#include "shell_client.h"
 #include "wayland_server.h"
 #include "workspace.h"
 #include "effect_builtins.h"
@@ -31,7 +31,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KConfigGroup>
 
 #include <KWayland/Client/buffer.h>
-#include <KWayland/Client/shell.h>
 #include <KWayland/Client/surface.h>
 
 using namespace KWin;
@@ -51,7 +50,6 @@ private Q_SLOTS:
 
 void WindowGeometryTest::initTestCase()
 {
-    qRegisterMetaType<KWin::ShellClient*>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Effect*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);

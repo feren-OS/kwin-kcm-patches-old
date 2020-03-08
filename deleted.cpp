@@ -21,11 +21,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "deleted.h"
 
 #include "workspace.h"
-#include "client.h"
+#include "x11client.h"
 #include "group.h"
 #include "netinfo.h"
 #include "shadow.h"
-#include "shell_client.h"
+#include "xdgshellclient.h"
 #include "decorations/decoratedclient.h"
 #include "decorations/decorationrenderer.h"
 
@@ -94,6 +94,10 @@ void Deleted::copyToDeleted(Toplevel* c)
 {
     Q_ASSERT(dynamic_cast< Deleted* >(c) == nullptr);
     Toplevel::copyToDeleted(c);
+    m_bufferGeometry = c->bufferGeometry();
+    m_bufferMargins = c->bufferMargins();
+    m_frameMargins = c->frameMargins();
+    m_bufferScale = c->bufferScale();
     desk = c->desktop();
     m_desktops = c->desktops();
     activityList = c->activities();
@@ -145,8 +149,8 @@ void Deleted::copyToDeleted(Toplevel* c)
         });
     }
 
-    m_wasWaylandClient = qobject_cast<ShellClient *>(c) != nullptr;
-    m_wasX11Client = !m_wasWaylandClient;
+    m_wasWaylandClient = qobject_cast<XdgShellClient *>(c) != nullptr;
+    m_wasX11Client = qobject_cast<X11Client *>(c) != nullptr;
     m_wasPopupWindow = c->isPopupWindow();
     m_wasOutline = c->isOutline();
 }
@@ -160,6 +164,26 @@ void Deleted::unrefWindow()
     // window going away during a painting pass
     // b) to prevent dangeling pointers in the stacking order, see bug #317765
     deleteLater();
+}
+
+QRect Deleted::bufferGeometry() const
+{
+    return m_bufferGeometry;
+}
+
+QMargins Deleted::bufferMargins() const
+{
+    return m_bufferMargins;
+}
+
+QMargins Deleted::frameMargins() const
+{
+    return m_frameMargins;
+}
+
+qreal Deleted::bufferScale() const
+{
+    return m_bufferScale;
 }
 
 int Deleted::desktop() const
@@ -198,11 +222,6 @@ void Deleted::layoutDecorationRects(QRect& left, QRect& top, QRect& right, QRect
     top = decoration_top;
     right = decoration_right;
     bottom = decoration_bottom;
-}
-
-QRect Deleted::decorationRect() const
-{
-    return rect();
 }
 
 QRect Deleted::transparentRect() const

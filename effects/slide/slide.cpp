@@ -4,7 +4,7 @@
 
 Copyright (C) 2007 Lubos Lunak <l.lunak@kde.org>
 Copyright (C) 2008 Lucas Murray <lmurray@undefinedfire.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -128,7 +128,7 @@ inline QRegion buildClipRegion(const QPoint &pos, int w, int h)
     return r;
 }
 
-void SlideEffect::paintScreen(int mask, QRegion region, ScreenPaintData &data)
+void SlideEffect::paintScreen(int mask, const QRegion &region, ScreenPaintData &data)
 {
     const bool wrap = effects->optionRollOverDesktops();
     const int w = workspaceWidth();

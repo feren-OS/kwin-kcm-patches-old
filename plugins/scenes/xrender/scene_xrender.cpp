@@ -27,7 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "logging.h"
 #include "toplevel.h"
-#include "client.h"
+#include "x11client.h"
 #include "composite.h"
 #include "deleted.h"
 #include "effects.h"
@@ -36,8 +36,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "platform.h"
 #include "screens.h"
 #include "xcbutils.h"
-#include "kwinxrenderutils.h"
 #include "decorations/decoratedclient.h"
+
+#include <kwineffectquickview.h>
+#include <kwinxrenderutils.h>
 
 #include <xcb/xfixes.h>
 
@@ -247,7 +249,7 @@ bool SceneXrender::initFailed() const
 }
 
 // the entry point for painting
-qint64 SceneXrender::paint(QRegion damage, ToplevelList toplevels)
+qint64 SceneXrender::paint(QRegion damage, QList<Toplevel *> toplevels)
 {
     QElapsedTimer renderTimer;
     renderTimer.start();
@@ -325,7 +327,6 @@ SceneXrender::Window::Window(Toplevel* c, SceneXrender *scene)
 
 SceneXrender::Window::~Window()
 {
-    discardShape();
 }
 
 void SceneXrender::Window::cleanup()
@@ -384,6 +385,16 @@ QPoint SceneXrender::Window::mapToScreen(int mask, const WindowPaintData &data, 
     }
 
     return pt;
+}
+
+QRect SceneXrender::Window::bufferToWindowRect(const QRect &rect) const
+{
+    return rect.translated(bufferOffset());
+}
+
+QRegion SceneXrender::Window::bufferToWindowRegion(const QRegion &region) const
+{
+    return region.translated(bufferOffset());
 }
 
 void SceneXrender::Window::prepareTempPixmap()
@@ -446,28 +457,29 @@ void SceneXrender::Window::performPaint(int mask, QRegion region, WindowPaintDat
         filter = ImageFilterFast;
     // do required transformations
     const QRect wr = mapToScreen(mask, data, QRect(0, 0, width(), height()));
-    QRect cr = QRect(toplevel->clientPos(), toplevel->clientSize()); // Client rect (in the window)
+    QRect cr = QRect(toplevel->clientPos(), toplevel->clientSize()); // Content rect (in the buffer)
     qreal xscale = 1;
     qreal yscale = 1;
     bool scaled = false;
 
-    Client *client = dynamic_cast<Client*>(toplevel);
+    X11Client *client = dynamic_cast<X11Client *>(toplevel);
     Deleted *deleted = dynamic_cast<Deleted*>(toplevel);
-    const QRect decorationRect = toplevel->decorationRect();
+    const QRect decorationRect = toplevel->rect();
     if (((client && !client->noBorder()) || (deleted && !deleted->noBorder())) &&
                                                         true) {
         // decorated client
         transformed_shape = decorationRect;
         if (toplevel->shape()) {
             // "xeyes" + decoration
-            transformed_shape -= cr;
-            transformed_shape += shape();
+            transformed_shape -= bufferToWindowRect(cr);
+            transformed_shape += bufferToWindowRegion(bufferShape());
         }
     } else {
-        transformed_shape = shape();
+        transformed_shape = bufferToWindowRegion(bufferShape());
     }
-    if (toplevel->hasShadow())
+    if (toplevel->shadow()) {
         transformed_shape |= toplevel->shadow()->shadowRegion();
+    }
 
     xcb_render_transform_t xform = {
         DOUBLE_TO_FIXED(1), DOUBLE_TO_FIXED(0), DOUBLE_TO_FIXED(0),
@@ -622,7 +634,7 @@ void SceneXrender::Window::performPaint(int mask, QRegion region, WindowPaintDat
     if (blitInTempPixmap) {
         dr.translate(-temp_visibleRect.topLeft());
     } else {
-        dr = mapToScreen(mask, data, dr); // Destination rect
+        dr = mapToScreen(mask, data, bufferToWindowRect(dr)); // Destination rect
         if (scaled) {
             cr.moveLeft(cr.x() * xscale);
             cr.moveTop(cr.y() * yscale);
@@ -1217,7 +1229,6 @@ void SceneXRenderDecorationRenderer::render()
     if (areImageSizesDirty()) {
         resizePixmaps();
         resetImageSizesDirty();
-        scheduled = client()->client()->decorationRect();
     }
 
     const QRect top(QPoint(0, 0), m_sizes[int(DecorationPart::Top)]);
@@ -1328,4 +1339,17 @@ Scene *XRenderFactory::create(QObject *parent) const
 void KWin::SceneXrender::paintCursor()
 {
 
+}
+
+void KWin::SceneXrender::paintEffectQuickView(KWin::EffectQuickView *w)
+{
+    const QImage buffer = w->bufferAsImage();
+    if (buffer.isNull()) {
+        return;
+    }
+    XRenderPicture picture(buffer);
+    xcb_render_composite(connection(), XCB_RENDER_PICT_OP_OVER, picture, XCB_RENDER_PICTURE_NONE,
+                         effects->xrenderBufferPicture(),
+                         0, 0, 0, 0, w->geometry().x(), w->geometry().y(),
+                         w->geometry().width(), w->geometry().height());
 }

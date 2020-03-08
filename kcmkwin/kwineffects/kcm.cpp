@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Vlad Zagorodniy <vladzzag@gmail.com>
+ * Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,12 +46,13 @@ DesktopEffectsKCM::DesktopEffectsKCM(QObject *parent, const QVariantList &args)
         QString(),
         KAboutLicense::GPL
     );
-    about->addAuthor(i18n("Vlad Zagorodniy"), QString(), QStringLiteral("vladzzag@gmail.com"));
+    about->addAuthor(i18n("Vlad Zahorodnii"), QString(), QStringLiteral("vlad.zahorodnii@kde.org"));
     setAboutData(about);
 
     setButtons(Apply | Default);
 
     connect(m_model, &EffectsModel::dataChanged, this, &DesktopEffectsKCM::updateNeedsSave);
+    connect(m_model, &EffectsModel::loaded, this, &DesktopEffectsKCM::updateNeedsSave);
 }
 
 DesktopEffectsKCM::~DesktopEffectsKCM()
@@ -115,6 +116,7 @@ void DesktopEffectsKCM::configure(const QString &pluginId, QQuickItem *context)
 void DesktopEffectsKCM::updateNeedsSave()
 {
     setNeedsSave(m_model->needsSave());
+    setRepresentsDefaults(m_model->isDefaults());
 }
 
 } // namespace KWin

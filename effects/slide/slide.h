@@ -4,7 +4,7 @@
 
 Copyright (C) 2007 Lubos Lunak <l.lunak@kde.org>
 Copyright (C) 2008 Lucas Murray <lmurray@undefinedfire.com>
-Copyright (C) 2018 Vlad Zagorodniy <vladzzag@gmail.com>
+Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ public:
     void reconfigure(ReconfigureFlags) override;
 
     void prePaintScreen(ScreenPrePaintData &data, int time) override;
-    void paintScreen(int mask, QRegion region, ScreenPaintData &data) override;
+    void paintScreen(int mask, const QRegion &region, ScreenPaintData &data) override;
     void postPaintScreen() override;
 
     void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, int time) override;

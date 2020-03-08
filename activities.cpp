@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "activities.h"
 // KWin
-#include "client.h"
+#include "x11client.h"
 #include "workspace.h"
 // KDE
 #include <KConfigGroup>
@@ -72,7 +72,7 @@ void Activities::slotCurrentChanged(const QString &newActivity)
 
 void Activities::slotRemoved(const QString &activity)
 {
-    foreach (Client * client, Workspace::self()->clientList()) {
+    foreach (X11Client *client, Workspace::self()->clientList()) {
         client->setOnActivity(activity, false);
     }
     //toss out any session data for it
@@ -80,7 +80,7 @@ void Activities::slotRemoved(const QString &activity)
     cg.deleteGroup();
 }
 
-void Activities::toggleClientOnActivity(Client* c, const QString &activity, bool dont_activate)
+void Activities::toggleClientOnActivity(X11Client *c, const QString &activity, bool dont_activate)
 {
     //int old_desktop = c->desktop();
     bool was_on_activity = c->isOnActivity(activity);
@@ -109,7 +109,7 @@ void Activities::toggleClientOnActivity(Client* c, const QString &activity, bool
     for (auto it = transients_stacking_order.constBegin();
             it != transients_stacking_order.constEnd();
             ++it) {
-        Client *c = dynamic_cast<Client *>(*it);
+        X11Client *c = dynamic_cast<X11Client *>(*it);
         if (!c) {
             continue;
         }
@@ -121,7 +121,7 @@ void Activities::toggleClientOnActivity(Client* c, const QString &activity, bool
 bool Activities::start(const QString &id)
 {
     Workspace *ws = Workspace::self();
-    if (ws->sessionSaving()) {
+    if (ws->sessionManager()->state() == SessionState::Saving) {
         return false; //ksmserver doesn't queue requests (yet)
     }
 
@@ -143,7 +143,7 @@ bool Activities::start(const QString &id)
 
 bool Activities::stop(const QString &id)
 {
-    if (Workspace::self()->sessionSaving()) {
+    if (Workspace::self()->sessionManager()->state() == SessionState::Saving) {
         return false; //ksmserver doesn't queue requests (yet)
         //FIXME what about session *loading*?
     }
@@ -157,16 +157,16 @@ bool Activities::stop(const QString &id)
 void Activities::reallyStop(const QString &id)
 {
     Workspace *ws = Workspace::self();
-    if (ws->sessionSaving())
+    if (ws->sessionManager()->state() == SessionState::Saving)
         return; //ksmserver doesn't queue requests (yet)
 
     qCDebug(KWIN_CORE) << id;
 
     QSet<QByteArray> saveSessionIds;
     QSet<QByteArray> dontCloseSessionIds;
-    const ClientList &clients = ws->clientList();
-    for (ClientList::const_iterator it = clients.constBegin(); it != clients.constEnd(); ++it) {
-        const Client* c = (*it);
+    const QList<X11Client *> &clients = ws->clientList();
+    for (auto it = clients.constBegin(); it != clients.constEnd(); ++it) {
+        const X11Client *c = (*it);
         const QByteArray sessionId = c->sessionId();
         if (sessionId.isEmpty()) {
             continue; //TODO support old wm_command apps too?

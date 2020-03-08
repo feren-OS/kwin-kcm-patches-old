@@ -3,6 +3,7 @@
  This file is part of the KDE project.
 
 Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -45,6 +46,7 @@ class Decoration;
 
 namespace KWin
 {
+class Group;
 
 namespace TabBox
 {
@@ -218,10 +220,10 @@ class KWIN_EXPORT AbstractClient : public Toplevel
     Q_PROPERTY(bool modal READ isModal NOTIFY modalChanged)
 
     /**
-     * The geometry of this Client. Be aware that depending on resize mode the geometryChanged signal
-     * might be emitted at each resize step or only at the end of the resize operation.
+     * The geometry of this Client. Be aware that depending on resize mode the frameGeometryChanged
+     * signal might be emitted at each resize step or only at the end of the resize operation.
      */
-    Q_PROPERTY(QRect geometry READ geometry WRITE setGeometry)
+    Q_PROPERTY(QRect geometry READ frameGeometry WRITE setFrameGeometry)
 
     /**
      * Whether the Client is currently being moved by the user.
@@ -384,6 +386,7 @@ public:
 
     bool wantsTabFocus() const;
 
+    QMargins frameMargins() const override;
     QPoint clientPos() const override {
         return QPoint(borderLeft(), borderTop());
     }
@@ -413,8 +416,8 @@ public:
     virtual bool isHiddenInternal() const = 0;
     // TODO: remove boolean trap
     virtual void hideClient(bool hide) = 0;
-    virtual bool isFullScreenable() const = 0;
-    virtual bool isFullScreen() const = 0;
+    virtual bool isFullScreenable() const;
+    virtual bool isFullScreen() const;
     // TODO: remove boolean trap
     virtual AbstractClient *findModal(bool allow_itself = false) = 0;
     virtual bool isTransient() const;
@@ -437,6 +440,7 @@ public:
      */
     virtual bool hasTransient(const AbstractClient* c, bool indirect) const;
     const QList<AbstractClient*>& transients() const; // Is not indirect
+    virtual void addTransient(AbstractClient *client);
     virtual void removeTransient(AbstractClient* cl);
     virtual QList<AbstractClient*> mainClients() const; // Call once before loop , is not indirect
     QList<AbstractClient*> allMainClients() const; // Call once before loop , is indirect
@@ -481,20 +485,12 @@ public:
     bool isMinimized() const {
         return m_minimized;
     }
-    virtual void setFullScreen(bool set, bool user = true) = 0;
+    virtual void setFullScreen(bool set, bool user = true);
 
     virtual void setClientShown(bool shown);
 
-    virtual QRect geometryRestore() const = 0;
-    /**
-     * The currently applied maximize mode
-     */
-    virtual MaximizeMode maximizeMode() const = 0;
-    /**
-     * The maximise mode requested by the server.
-     * For X this always matches maximizeMode, for wayland clients it
-     * is asyncronous
-     */
+    QRect geometryRestore() const;
+    virtual MaximizeMode maximizeMode() const;
     virtual MaximizeMode requestedMaximizeMode() const;
     void maximize(MaximizeMode);
     /**
@@ -537,13 +533,10 @@ public:
      * Whether the Client can be shaded. Default implementation returns @c false.
      */
     virtual bool isShadeable() const;
-    /**
-     * Returns whether the window is maximizable or not.
-     */
-    virtual bool isMaximizable() const = 0;
-    virtual bool isMinimizable() const = 0;
+    virtual bool isMaximizable() const;
+    virtual bool isMinimizable() const;
     virtual QRect iconGeometry() const;
-    virtual bool userCanSetFullScreen() const = 0;
+    virtual bool userCanSetFullScreen() const;
     virtual bool userCanSetNoBorder() const = 0;
     virtual void checkNoBorder();
     virtual void setOnActivities(QStringList newActivitiesList);
@@ -554,7 +547,7 @@ public:
     void removeRule(Rules* r);
     void setupWindowRules(bool ignore_temporary);
     void evaluateWindowRules();
-    void applyWindowRules();
+    virtual void applyWindowRules();
     virtual void takeFocus() = 0;
     virtual bool wantsInput() const = 0;
     /**
@@ -621,41 +614,79 @@ public:
     Layer layer() const override;
     void updateLayer();
 
+    void placeIn(const QRect &area);
+
     enum ForceGeometry_t { NormalGeometrySet, ForceGeometrySet };
-    void move(int x, int y, ForceGeometry_t force = NormalGeometrySet);
+    virtual void move(int x, int y, ForceGeometry_t force = NormalGeometrySet);
     void move(const QPoint &p, ForceGeometry_t force = NormalGeometrySet);
     virtual void resizeWithChecks(int w, int h, ForceGeometry_t force = NormalGeometrySet) = 0;
     void resizeWithChecks(const QSize& s, ForceGeometry_t force = NormalGeometrySet);
     void keepInArea(QRect area, bool partial = false);
     virtual QSize minSize() const;
     virtual QSize maxSize() const;
-    virtual void setGeometry(int x, int y, int w, int h, ForceGeometry_t force = NormalGeometrySet) = 0;
-    void setGeometry(const QRect& r, ForceGeometry_t force = NormalGeometrySet);
-    /// How to resize the window in order to obey constains (mainly aspect ratios)
-    enum Sizemode {
-        SizemodeAny,
-        SizemodeFixedW, ///< Try not to affect width
-        SizemodeFixedH, ///< Try not to affect height
-        SizemodeMax ///< Try not to make it larger in either direction
-    };
-    /**
-     * Calculates the appropriate frame size for the given client size @p wsize.
-     *
-     * @p wsize is adapted according to the window's size hints (minimum, maximum and incremental size changes).
-     *
-     * Default implementation returns the passed in @p wsize.
-     */
-    virtual QSize sizeForClientSize(const QSize &wsize, Sizemode mode = SizemodeAny, bool noframe = false) const;
+    virtual void setFrameGeometry(int x, int y, int w, int h, ForceGeometry_t force = NormalGeometrySet) = 0;
+    void setFrameGeometry(const QRect &rect, ForceGeometry_t force = NormalGeometrySet);
 
     /**
-     * Adjust the frame size @p frame according to the window's size hints.
+     * How to resize the window in order to obey constraints (mainly aspect ratios).
      */
-    QSize adjustedSize(const QSize&, Sizemode mode = SizemodeAny) const;
+    enum SizeMode {
+        SizeModeAny,
+        SizeModeFixedW, ///< Try not to affect width
+        SizeModeFixedH, ///< Try not to affect height
+        SizeModeMax ///< Try not to make it larger in either direction
+    };
+
+    virtual QSize constrainClientSize(const QSize &size, SizeMode mode = SizeModeAny) const;
+    QSize constrainFrameSize(const QSize &size, SizeMode mode = SizeModeAny) const;
     QSize adjustedSize() const;
 
+    /**
+     * Calculates the matching client position for the given frame position @p point.
+     */
+    virtual QPoint framePosToClientPos(const QPoint &point) const;
+    /**
+     * Calculates the matching frame position for the given client position @p point.
+     */
+    virtual QPoint clientPosToFramePos(const QPoint &point) const;
+    /**
+     * Calculates the matching client size for the given frame size @p size.
+     *
+     * Notice that size constraints won't be applied.
+     *
+     * Default implementation returns the frame size with frame margins being excluded.
+     */
+    virtual QSize frameSizeToClientSize(const QSize &size) const;
+    /**
+     * Calculates the matching frame size for the given client size @p size.
+     *
+     * Notice that size constraints won't be applied.
+     *
+     * Default implementation returns the client size with frame margins being included.
+     */
+    virtual QSize clientSizeToFrameSize(const QSize &size) const;
+    /**
+     * Calculates the matching client rect for the given frame rect @p rect.
+     *
+     * Notice that size constraints won't be applied.
+     */
+    QRect frameRectToClientRect(const QRect &rect) const;
+    /**
+     * Calculates the matching frame rect for the given client rect @p rect.
+     *
+     * Notice that size constraints won't be applied.
+     */
+    QRect clientRectToFrameRect(const QRect &rect) const;
+
+    /**
+     * Returns @c true if the Client is being interactively moved; otherwise @c false.
+     */
     bool isMove() const {
         return isMoveResize() && moveResizePointerMode() == PositionCenter;
     }
+    /**
+     * Returns @c true if the Client is being interactively resized; otherwise @c false.
+     */
     bool isResize() const {
         return isMoveResize() && moveResizePointerMode() != PositionCenter;
     }
@@ -756,6 +787,7 @@ public:
      * Implementing subclasses can perform a windowing system solution for terminating.
      */
     virtual void killWindow() = 0;
+    virtual void destroyClient() = 0;
 
     enum class SameApplicationCheck {
         RelaxedForActive = 1 << 0,
@@ -875,6 +907,7 @@ Q_SIGNALS:
     void shadeableChanged(bool);
     void maximizeableChanged(bool);
     void desktopFileNameChanged();
+    void applicationMenuChanged();
     void hasApplicationMenuChanged(bool);
     void applicationMenuActiveChanged(bool);
     void unresponsiveChanged(bool);
@@ -919,10 +952,8 @@ protected:
      * is emitted.
      *
      * Default implementation does nothing.
-     * @param desktop The new desktop the Client is on
-     * @param was_desk The desktop the Client was on before
      */
-    virtual void doSetDesktop(int desktop, int was_desk);
+    virtual void doSetDesktop();
     /**
      * Called from @ref minimize and @ref unminimize once the minimized value got updated, but before the
      * changed signal is emitted.
@@ -935,6 +966,7 @@ protected:
     virtual void doSetSkipTaskbar();
     virtual void doSetSkipPager();
     virtual void doSetSkipSwitcher();
+    virtual void doSetDemandsAttention();
 
     void setupWindowManagementInterface();
     void destroyWindowManagementInterface();
@@ -943,7 +975,6 @@ protected:
     virtual void updateColorScheme() = 0;
 
     void setTransientFor(AbstractClient *transientFor);
-    virtual void addTransient(AbstractClient* cl);
     /**
      * Just removes the @p cl from the transients without any further checks.
      */
@@ -979,8 +1010,8 @@ protected:
     int borderRight() const;
     int borderTop() const;
     int borderBottom() const;
-    virtual void changeMaximize(bool horizontal, bool vertical, bool adjust) = 0;
-    virtual void setGeometryRestore(const QRect &geo) = 0;
+    virtual void changeMaximize(bool horizontal, bool vertical, bool adjust);
+    void setGeometryRestore(const QRect &rect);
 
     /**
      * Called from move after updating the geometry. Can be reimplemented to perform specific tasks.
@@ -998,9 +1029,8 @@ protected:
     };
     PendingGeometry_t pendingGeometryUpdate() const;
     void setPendingGeometryUpdate(PendingGeometry_t update);
-    QRect geometryBeforeUpdateBlocking() const {
-        return m_geometryBeforeUpdateBlocking;
-    }
+    QRect bufferGeometryBeforeUpdateBlocking() const;
+    QRect frameGeometryBeforeUpdateBlocking() const;
     void updateGeometryBeforeUpdateBlocking();
     /**
      * Schedules a repaint for the visibleRect before and after a
@@ -1147,6 +1177,7 @@ protected:
     void setDecoration(KDecoration2::Decoration *decoration) {
         m_decoration.decoration = decoration;
     }
+    virtual void createDecoration(const QRect &oldGeometry);
     virtual void destroyDecoration();
     void startDecorationDoubleClickTimer();
     void invalidateDecorationDoubleClickTimer();
@@ -1218,9 +1249,11 @@ private:
     PendingGeometry_t m_pendingGeometryUpdate = PendingGeometryNone;
     friend class GeometryUpdatesBlocker;
     QRect m_visibleRectBeforeGeometryUpdate;
-    QRect m_geometryBeforeUpdateBlocking;
+    QRect m_bufferGeometryBeforeUpdateBlocking;
+    QRect m_frameGeometryBeforeUpdateBlocking;
     QRect m_virtualKeyboardGeometry;
     QRect m_keyboardGeometryRestore;
+    QRect m_maximizeGeometryRestore;
 
     struct {
         bool enabled = false;
@@ -1284,9 +1317,9 @@ inline void AbstractClient::resizeWithChecks(const QSize& s, AbstractClient::For
     resizeWithChecks(s.width(), s.height(), force);
 }
 
-inline void AbstractClient::setGeometry(const QRect& r, ForceGeometry_t force)
+inline void AbstractClient::setFrameGeometry(const QRect &rect, ForceGeometry_t force)
 {
-    setGeometry(r.x(), r.y(), r.width(), r.height(), force);
+    setFrameGeometry(rect.x(), rect.y(), rect.width(), rect.height(), force);
 }
 
 inline const QList<AbstractClient*>& AbstractClient::transients() const

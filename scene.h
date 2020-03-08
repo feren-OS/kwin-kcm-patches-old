@@ -76,7 +76,7 @@ public:
     // The entry point for the main part of the painting pass.
     // returns the time since the last vblank signal - if there's one
     // ie. "what of this frame is lost to painting"
-    virtual qint64 paint(QRegion damage, ToplevelList windows) = 0;
+    virtual qint64 paint(QRegion damage, QList<Toplevel *> windows) = 0;
 
     /**
      * Adds the Toplevel to the Scene.
@@ -209,7 +209,7 @@ public Q_SLOTS:
     void windowClosed(KWin::Toplevel* c, KWin::Deleted* deleted);
 protected:
     virtual Window *createWindow(Toplevel *toplevel) = 0;
-    void createStackingOrder(ToplevelList toplevels);
+    void createStackingOrder(QList<Toplevel *> toplevels);
     void clearStackingOrder();
     // shared implementation, starts painting the screen
     void paintScreen(int *mask, const QRegion &damage, const QRegion &repaint,
@@ -236,6 +236,9 @@ protected:
     // the default is NOOP
     virtual void extendPaintRegion(QRegion &region, bool opaqueFullscreen);
     virtual void paintDesktop(int desktop, int mask, const QRegion &region, ScreenPaintData &data);
+
+    virtual void paintEffectQuickView(EffectQuickView *w) = 0;
+
     // compute time since the last repaint
     void updateTimeDiff();
     // saved data for 2nd pass of optimized screen painting
@@ -294,7 +297,8 @@ public:
     // perform the actual painting of the window
     virtual void performPaint(int mask, QRegion region, WindowPaintData data) = 0;
     // do any cleanup needed when the window's composite pixmap is discarded
-    void pixmapDiscarded();
+    void discardPixmap();
+    void updatePixmap();
     int x() const;
     int y() const;
     int width() const;
@@ -329,8 +333,10 @@ public:
     // is the window fully opaque
     bool isOpaque() const;
     // shape of the window
-    const QRegion &shape() const;
+    QRegion bufferShape() const;
     QRegion clientShape() const;
+    QRegion decorationShape() const;
+    QPoint bufferOffset() const;
     void discardShape();
     void updateToplevel(Toplevel* c);
     // creates initial quad list for the window
@@ -342,8 +348,8 @@ public:
     void unreferencePreviousPixmap();
     void invalidateQuadsCache();
 protected:
-    WindowQuadList makeQuads(WindowQuadType type, const QRegion& reg, const QPoint &textureOffset = QPoint(0, 0), qreal textureScale = 1.0) const;
     WindowQuadList makeDecorationQuads(const QRect *rects, const QRegion &region, qreal textureScale = 1.0) const;
+    WindowQuadList makeContentsQuads() const;
     /**
      * @brief Returns the WindowPixmap for this Window.
      *
@@ -376,8 +382,8 @@ private:
     QScopedPointer<WindowPixmap> m_previousPixmap;
     int m_referencePixmapCounter;
     int disable_painting;
-    mutable QRegion shape_region;
-    mutable bool shape_valid;
+    mutable QRegion m_bufferShape;
+    mutable bool m_bufferShapeIsValid = false;
     mutable QScopedPointer<WindowQuadList> cached_quad_list;
     Q_DISABLE_COPY(Window)
 };
@@ -425,6 +431,7 @@ public:
      */
     QPointer<KWayland::Server::BufferInterface> buffer() const;
     const QSharedPointer<QOpenGLFramebufferObject> &fbo() const;
+    QImage internalImage() const;
     /**
      * @brief Whether this WindowPixmap is considered as discarded. This means the window has changed in a way that a new
      * WindowPixmap should have been created already.
@@ -512,6 +519,7 @@ private:
     QRect m_contentsRect;
     QPointer<KWayland::Server::BufferInterface> m_buffer;
     QSharedPointer<QOpenGLFramebufferObject> m_fbo;
+    QImage m_internalImage;
     WindowPixmap *m_parent = nullptr;
     QVector<WindowPixmap*> m_children;
     QPointer<KWayland::Server::SubSurfaceInterface> m_subSurface;
@@ -561,7 +569,7 @@ int Scene::Window::height() const
 inline
 QRect Scene::Window::geometry() const
 {
-    return toplevel->geometry();
+    return toplevel->frameGeometry();
 }
 
 inline
@@ -616,6 +624,12 @@ inline
 const QSharedPointer<QOpenGLFramebufferObject> &WindowPixmap::fbo() const
 {
     return m_fbo;
+}
+
+inline
+QImage WindowPixmap::internalImage() const
+{
+    return m_internalImage;
 }
 
 template <typename T>
