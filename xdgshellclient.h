@@ -63,8 +63,6 @@ public:
     QStringList activities() const override;
     QPoint clientContentPos() const override;
     QSize clientSize() const override;
-    QSize minSize() const override;
-    QSize maxSize() const override;
     QRect transparentRect() const override;
     NET::WindowType windowType(bool direct = false, int supported_types = 0) const override;
     void debug(QDebug &stream) const override;
@@ -89,6 +87,7 @@ public:
     void hideClient(bool hide) override;
     MaximizeMode maximizeMode() const override;
     MaximizeMode requestedMaximizeMode() const override;
+    QRect geometryRestore() const override;
     bool noBorder() const override;
     void setFullScreen(bool set, bool user = true) override;
     void setNoBorder(bool set) override;
@@ -121,13 +120,14 @@ public:
     void killWindow() override;
     bool isLocalhost() const override;
     bool supportsWindowRules() const override;
-    void destroyClient() override;
 
     void installPlasmaShellSurface(KWayland::Server::PlasmaShellSurfaceInterface *surface);
     void installServerSideDecoration(KWayland::Server::ServerSideDecorationInterface *decoration);
     void installAppMenu(KWayland::Server::AppMenuInterface *appmenu);
     void installPalette(KWayland::Server::ServerSideDecorationPaletteInterface *palette);
     void installXdgDecoration(KWayland::Server::XdgDecorationInterface *decoration);
+
+    void placeIn(const QRect &area);
 
 protected:
     void addDamage(const QRegion &damage) override;
@@ -136,6 +136,7 @@ protected:
     bool belongsToDesktop() const override;
     Layer layerForDock() const override;
     void changeMaximize(bool horizontal, bool vertical, bool adjust) override;
+    void setGeometryRestore(const QRect &geo) override;
     void doResizeSync() override;
     bool acceptsFocus() const override;
     void doMinimize() override;
@@ -170,6 +171,8 @@ private:
      * At this point all initial properties should have been set by the client.
      */
     void finishInit();
+    void createDecoration(const QRect &oldgeom);
+    void destroyClient();
     void createWindowId();
     void updateIcon();
     bool shouldExposeToWindowManagement();
@@ -222,6 +225,7 @@ private:
     bool m_closing = false;
     quint32 m_windowId = 0;
     bool m_unmapped = true;
+    QRect m_geomMaximizeRestore; // size and position of the window before it was set to maximize
     NET::WindowType m_windowType = NET::Normal;
     QPointer<KWayland::Server::PlasmaShellSurfaceInterface> m_plasmaShellSurface;
     QPointer<KWayland::Server::AppMenuInterface> m_appMenuInterface;

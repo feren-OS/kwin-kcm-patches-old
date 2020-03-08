@@ -44,6 +44,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "libinput/device.h"
 #include "platform.h"
 #include "popup_input_filter.h"
+#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "xwl/xwayland_interface.h"
 #include "internal_client.h"
@@ -758,16 +759,7 @@ public:
         return input()->shortcuts()->processAxis(event->modifiers(), direction);
     }
     bool keyEvent(QKeyEvent *event) override {
-        if (event->key() == Qt::Key_PowerOff) {
-            if (event->type() == QEvent::KeyPress) {
-                m_powerOffPress = event->timestamp();
-            } else if (event->type() == QEvent::KeyRelease) {
-                const uint duration = (event->timestamp() - m_powerOffPress);
-                const Qt::Key key = duration > 1000 ? Qt::Key_PowerDown : Qt::Key_PowerOff;
-                const auto shortcuts = static_cast<KeyEvent*>(event)->modifiersRelevantForGlobalShortcuts();
-                return input()->shortcuts()->processKey(shortcuts, key | (event->key() & ~Qt::KeyboardModifierMask));
-            }
-        } else if (event->type() == QEvent::KeyPress) {
+        if (event->type() == QEvent::KeyPress) {
             return input()->shortcuts()->processKey(static_cast<KeyEvent*>(event)->modifiersRelevantForGlobalShortcuts(), event->key());
         }
         return false;
@@ -792,9 +784,6 @@ public:
         input()->shortcuts()->processSwipeEnd();
         return false;
     }
-
-private:
-    uint m_powerOffPress;
 };
 
 

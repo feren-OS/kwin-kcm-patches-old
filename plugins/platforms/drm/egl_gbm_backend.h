@@ -71,12 +71,6 @@ private:
          * @brief The damage history for the past 10 frames.
          */
         QList<QRegion> damageHistory;
-
-        struct {
-            GLuint framebuffer = 0;
-            GLuint texture = 0;
-            std::shared_ptr<GLVertexBuffer> vbo;
-        } render;
     };
 
     void createOutput(DrmOutput *drmOutput);
@@ -86,18 +80,10 @@ private:
 
     bool makeContextCurrent(const Output &output) const;
     void setViewport(const Output &output) const;
-
-    bool resetFramebuffer(Output &output);
-    void initRenderTarget(Output &output);
-
-    void prepareRenderFramebuffer(const Output &output) const;
-    void renderFramebufferToSurface(Output &output);
-
     void presentOnOutput(Output &output);
 
     void removeOutput(DrmOutput *drmOutput);
-    void cleanupOutput(Output &output);
-    void cleanupFramebuffer(Output &output);
+    void cleanupOutput(const Output &output);
 
     DrmBackend *m_backend;
     QVector<Output> m_outputs;

@@ -37,6 +37,7 @@ using KWayland::Server::IdleInterface;
 namespace KWin
 {
 class AbstractClient;
+class XdgShellClient;
 
 class IdleInhibition : public QObject
 {
@@ -45,7 +46,7 @@ public:
     explicit IdleInhibition(IdleInterface *idle);
     ~IdleInhibition() override;
 
-    void registerClient(AbstractClient *client);
+    void registerXdgShellClient(XdgShellClient *client);
 
     bool isInhibited() const {
         return !m_idleInhibitors.isEmpty();

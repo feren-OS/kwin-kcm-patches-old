@@ -28,6 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
+#include "xdgshellclient.h"
 #include "deleted.h"
 
 #include <KWayland/Client/connection_thread.h>
@@ -93,6 +94,7 @@ void MoveResizeWindowTest::initTestCase()
 {
     qRegisterMetaType<KWin::AbstractClient *>();
     qRegisterMetaType<KWin::Deleted *>();
+    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::MaximizeMode>("MaximizeMode");
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -136,6 +138,8 @@ void MoveResizeWindowTest::testMove()
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
     QCOMPARE(c->frameGeometry(), QRect(0, 0, 100, 50));
+    QSignalSpy geometryChangedSpy(c, &AbstractClient::geometryChanged);
+    QVERIFY(geometryChangedSpy.isValid());
     QSignalSpy startMoveResizedSpy(c, &AbstractClient::clientStartUserMovedResized);
     QVERIFY(startMoveResizedSpy.isValid());
     QSignalSpy moveResizedChangedSpy(c, &AbstractClient::moveResizedChanged);
@@ -239,8 +243,8 @@ void MoveResizeWindowTest::testResize()
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
     QCOMPARE(c->frameGeometry(), QRect(0, 0, 100, 50));
-    QSignalSpy frameGeometryChangedSpy(c, &AbstractClient::frameGeometryChanged);
-    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy geometryChangedSpy(c, &AbstractClient::geometryChanged);
+    QVERIFY(geometryChangedSpy.isValid());
     QSignalSpy startMoveResizedSpy(c, &AbstractClient::clientStartUserMovedResized);
     QVERIFY(startMoveResizedSpy.isValid());
     QSignalSpy moveResizedChangedSpy(c, &AbstractClient::moveResizedChanged);
@@ -285,7 +289,7 @@ void MoveResizeWindowTest::testResize()
     // Now render new size.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(108, 50), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(c->frameGeometry(), QRect(0, 0, 108, 50));
     QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
 
@@ -306,7 +310,7 @@ void MoveResizeWindowTest::testResize()
     // Now render new size.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(108, 58), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(c->frameGeometry(), QRect(0, 0, 108, 58));
     QCOMPARE(clientStepUserMovedResizedSpy.count(), 2);
 
@@ -483,10 +487,10 @@ void MoveResizeWindowTest::testGrowShrink()
     QVERIFY(sizeChangeSpy.wait());
     Test::render(surface.data(), shellSurface->size(), Qt::red);
 
-    QSignalSpy frameGeometryChangedSpy(c, &AbstractClient::frameGeometryChanged);
-    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy geometryChangedSpy(c, &AbstractClient::geometryChanged);
+    QVERIFY(geometryChangedSpy.isValid());
     m_connection->flush();
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QTEST(c->frameGeometry(), "expectedGeometry");
 }
 
@@ -812,7 +816,7 @@ void MoveResizeWindowTest::testAdjustClientGeometryOfAutohidingX11Panel()
     QCOMPARE(Workspace::self()->adjustClientPosition(testWindow, targetPoint, false), targetPoint);
 
     // and close
-    QSignalSpy windowClosedSpy(testWindow, &AbstractClient::windowClosed);
+    QSignalSpy windowClosedSpy(testWindow, &XdgShellClient::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     shellSurface.reset();
     surface.reset();
@@ -878,7 +882,7 @@ void MoveResizeWindowTest::testAdjustClientGeometryOfAutohidingWaylandPanel()
     QCOMPARE(Workspace::self()->adjustClientPosition(testWindow, targetPoint, false), targetPoint);
 
     // and destroy the panel again
-    QSignalSpy panelClosedSpy(panel, &AbstractClient::windowClosed);
+    QSignalSpy panelClosedSpy(panel, &XdgShellClient::windowClosed);
     QVERIFY(panelClosedSpy.isValid());
     plasmaSurface.reset();
     panelShellSurface.reset();
@@ -889,7 +893,7 @@ void MoveResizeWindowTest::testAdjustClientGeometryOfAutohidingWaylandPanel()
     QCOMPARE(Workspace::self()->adjustClientPosition(testWindow, targetPoint, false), targetPoint);
 
     // and close
-    QSignalSpy windowClosedSpy(testWindow, &AbstractClient::windowClosed);
+    QSignalSpy windowClosedSpy(testWindow, &XdgShellClient::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     shellSurface.reset();
     surface.reset();
@@ -916,8 +920,8 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboard()
     QVERIFY(configureRequestedSpy.wait());
 
     client->move(100, 300);
-    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
-    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy geometryChangedSpy(client, &XdgShellClient::geometryChanged);
+    QVERIFY(geometryChangedSpy.isValid());
 
     QCOMPARE(client->frameGeometry(), QRect(100, 300, 500, 800));
     client->setVirtualKeyboardGeometry(QRect(0, 100, 1280, 500));
@@ -926,7 +930,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboard()
     shellSurface->ackConfigure(configureRequestedSpy.last()[2].toInt());
     // render at the new size
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
 
     QCOMPARE(client->frameGeometry(), QRect(100, 0, 500, 101));
     client->setVirtualKeyboardGeometry(QRect());
@@ -935,7 +939,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboard()
     shellSurface->ackConfigure(configureRequestedSpy.last()[2].toInt());
     // render at the new size
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), QRect(100, 300, 500, 800));
 }
 
@@ -959,8 +963,8 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithMaximize()
     QVERIFY(configureRequestedSpy.wait());
 
     client->move(100, 300);
-    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
-    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy geometryChangedSpy(client, &XdgShellClient::geometryChanged);
+    QVERIFY(geometryChangedSpy.isValid());
 
     QCOMPARE(client->frameGeometry(), QRect(100, 300, 500, 800));
     client->setVirtualKeyboardGeometry(QRect(0, 100, 1280, 500));
@@ -969,14 +973,14 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithMaximize()
     shellSurface->ackConfigure(configureRequestedSpy.last()[2].toInt());
     // render at the new size
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), QRect(100, 0, 500, 101));
 
     client->setMaximize(true, true);
     QVERIFY(configureRequestedSpy.wait());
     shellSurface->ackConfigure(configureRequestedSpy.last()[2].toInt());
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), QRect(0, 0, 1280, 1024));
 
     client->setVirtualKeyboardGeometry(QRect());
@@ -984,7 +988,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithMaximize()
 
     // render at the size of the configureRequested.. it won't have changed
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(!frameGeometryChangedSpy.wait(10));
+    QVERIFY(!geometryChangedSpy.wait(10));
 
     // Size will NOT be restored
     QCOMPARE(client->frameGeometry(), QRect(0, 0, 1280, 1024));
@@ -1010,8 +1014,8 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithFullScreen()
     QVERIFY(configureRequestedSpy.wait());
 
     client->move(100, 300);
-    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
-    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy geometryChangedSpy(client, &XdgShellClient::geometryChanged);
+    QVERIFY(geometryChangedSpy.isValid());
 
     QCOMPARE(client->frameGeometry(), QRect(100, 300, 500, 800));
     client->setVirtualKeyboardGeometry(QRect(0, 100, 1280, 500));
@@ -1020,14 +1024,14 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithFullScreen()
     shellSurface->ackConfigure(configureRequestedSpy.last()[2].toInt());
     // render at the new size
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), QRect(100, 0, 500, 101));
 
     client->setFullScreen(true, true);
     QVERIFY(configureRequestedSpy.wait());
     shellSurface->ackConfigure(configureRequestedSpy.last()[2].toInt());
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), QRect(0, 0, 1280, 1024));
 
     client->setVirtualKeyboardGeometry(QRect());
@@ -1035,7 +1039,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithFullScreen()
 
     // render at the size of the configureRequested.. it won't have changed
     Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::blue);
-    QVERIFY(!frameGeometryChangedSpy.wait(10));
+    QVERIFY(!geometryChangedSpy.wait(10));
     // Size will NOT be restored
     QCOMPARE(client->frameGeometry(), QRect(0, 0, 1280, 1024));
 }
@@ -1051,7 +1055,7 @@ void MoveResizeWindowTest::testDestroyMoveClient()
     QVERIFY(!surface.isNull());
     QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
-    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
     // Start moving the client.
@@ -1088,7 +1092,7 @@ void MoveResizeWindowTest::testDestroyResizeClient()
     QVERIFY(!surface.isNull());
     QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
-    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
     // Start resizing the client.
@@ -1125,7 +1129,7 @@ void MoveResizeWindowTest::testUnmapMoveClient()
     QVERIFY(!surface.isNull());
     QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
-    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
     // Start resizing the client.
@@ -1144,7 +1148,7 @@ void MoveResizeWindowTest::testUnmapMoveClient()
     QCOMPARE(client->isResize(), false);
 
     // Unmap the client while we're moving it.
-    QSignalSpy hiddenSpy(client, &AbstractClient::windowHidden);
+    QSignalSpy hiddenSpy(client, &XdgShellClient::windowHidden);
     QVERIFY(hiddenSpy.isValid());
     surface->attachBuffer(Buffer::Ptr());
     surface->commit(Surface::CommitFlag::None);
@@ -1171,7 +1175,7 @@ void MoveResizeWindowTest::testUnmapResizeClient()
     QVERIFY(!surface.isNull());
     QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
-    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
     // Start resizing the client.
@@ -1190,7 +1194,7 @@ void MoveResizeWindowTest::testUnmapResizeClient()
     QCOMPARE(client->isResize(), true);
 
     // Unmap the client while we're resizing it.
-    QSignalSpy hiddenSpy(client, &AbstractClient::windowHidden);
+    QSignalSpy hiddenSpy(client, &XdgShellClient::windowHidden);
     QVERIFY(hiddenSpy.isValid());
     surface->attachBuffer(Buffer::Ptr());
     surface->commit(Surface::CommitFlag::None);

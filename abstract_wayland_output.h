@@ -73,11 +73,7 @@ public:
     QString name() const override;
     QByteArray uuid() const override;
 
-    QSize modeSize() const;
-
-    // TODO: The name is ambiguous. Rename this function.
     QSize pixelSize() const;
-
     qreal scale() const override;
 
     /**
@@ -85,17 +81,6 @@ public:
      */
     QRect geometry() const override;
     QSize physicalSize() const override;
-
-    /**
-     * Returns the orientation of this output.
-     *
-     * - Flipped along the vertical axis is landscape + inv. portrait.
-     * - Rotated 90° and flipped along the horizontal axis is portrait + inv. landscape
-     * - Rotated 180° and flipped along the vertical axis is inv. landscape + inv. portrait
-     * - Rotated 270° and flipped along the horizontal axis is inv. portrait + inv. landscape +
-     *   portrait
-     */
-    Transform transform() const;
 
     /**
      * Current refresh rate in 1/ms.
@@ -169,6 +154,17 @@ protected:
     void setTransform(Transform transform);
 
     QSize orientateSize(const QSize &size) const;
+
+    /**
+     * Returns the orientation of this output.
+     *
+     * - Flipped along the vertical axis is landscape + inv. portrait.
+     * - Rotated 90° and flipped along the horizontal axis is portrait + inv. landscape
+     * - Rotated 180° and flipped along the vertical axis is inv. landscape + inv. portrait
+     * - Rotated 270° and flipped along the horizontal axis is inv. portrait + inv. landscape +
+     *   portrait
+     */
+    Transform transform() const;
 
 private:
     void createWaylandOutput();

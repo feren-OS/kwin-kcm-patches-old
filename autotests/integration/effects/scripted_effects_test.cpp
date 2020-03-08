@@ -21,7 +21,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "scripting/scriptedeffect.h"
 #include "libkwineffects/anidata_p.h"
 
-#include "abstract_client.h"
 #include "composite.h"
 #include "cursor.h"
 #include "deleted.h"
@@ -30,6 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "effects.h"
 #include "kwin_wayland_test.h"
 #include "platform.h"
+#include "xdgshellclient.h"
 #include "virtualdesktops.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -143,6 +143,7 @@ bool ScriptedEffectWithDebugSpy::load(const QString &name)
 
 void ScriptedEffectsTest::initTestCase()
 {
+    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Deleted*>();
     qRegisterMetaType<KWin::Effect*>();
@@ -306,7 +307,7 @@ void ScriptedEffectsTest::testAnimations()
         QCOMPARE(animationsForWindow[0].timeLine.duration(), 100ms);
         QCOMPARE(animationsForWindow[0].to, FPx2(1.4));
         QCOMPARE(animationsForWindow[0].attribute, AnimationEffect::Scale);
-        QCOMPARE(animationsForWindow[0].timeLine.easingCurve().type(), QEasingCurve::OutCubic);
+        QCOMPARE(animationsForWindow[0].timeLine.easingCurve().type(), QEasingCurve::OutQuad);
         QCOMPARE(animationsForWindow[0].terminationFlags,
                  AnimationEffect::TerminateAtSource | AnimationEffect::TerminateAtTarget);
 
@@ -510,7 +511,7 @@ void ScriptedEffectsTest::testGrab()
     QVERIFY(surface);
     XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
-    AbstractClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
+    XdgShellClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
 
@@ -543,7 +544,7 @@ void ScriptedEffectsTest::testGrabAlreadyGrabbedWindow()
     QVERIFY(surface);
     XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
-    AbstractClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
+    XdgShellClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
 
@@ -580,7 +581,7 @@ void ScriptedEffectsTest::testGrabAlreadyGrabbedWindowForced()
     QVERIFY(surface);
     XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
-    AbstractClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
+    XdgShellClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
 
@@ -611,7 +612,7 @@ void ScriptedEffectsTest::testUngrab()
     QVERIFY(surface);
     XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
-    AbstractClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
+    XdgShellClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
 
@@ -654,7 +655,7 @@ void ScriptedEffectsTest::testRedirect()
     QVERIFY(surface);
     XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
-    AbstractClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
+    XdgShellClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
 
@@ -732,7 +733,7 @@ void ScriptedEffectsTest::testComplete()
     QVERIFY(surface);
     XdgShellSurface *shellSurface = Test::createXdgShellStableSurface(surface, surface);
     QVERIFY(shellSurface);
-    AbstractClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
+    XdgShellClient *c = Test::renderAndWaitForShown(surface, QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QCOMPARE(workspace()->activeClient(), c);
 

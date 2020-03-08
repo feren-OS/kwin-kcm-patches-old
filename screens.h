@@ -35,6 +35,7 @@ namespace KWin
 {
 class AbstractClient;
 class Platform;
+class OrientationSensor;
 
 class KWIN_EXPORT Screens : public QObject
 {
@@ -146,6 +147,16 @@ public:
 
     virtual Qt::ScreenOrientation orientation(int screen) const;
 
+    /**
+     * Provides access to the OrientationSensor. The OrientationSensor is controlled by the
+     * base implementation. The implementing subclass can use this to get notifications about
+     * changes of the orientation and current orientation. There is no need to enable/disable it,
+     * that is done by the base implementation
+     */
+    OrientationSensor *orientationSensor() const {
+        return m_orientationSensor;
+    }
+
 public Q_SLOTS:
     void reconfigure();
 
@@ -197,6 +208,7 @@ private:
     QTimer *m_changedTimer;
     KSharedConfig::Ptr m_config;
     QSize m_boundingSize;
+    OrientationSensor *m_orientationSensor;
     qreal m_maxScale;
 
     KWIN_SINGLETON(Screens)

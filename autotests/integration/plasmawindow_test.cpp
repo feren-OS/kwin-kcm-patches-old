@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
+#include "xdgshellclient.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/compositor.h>
@@ -67,6 +68,7 @@ private:
 
 void PlasmaWindowTest::initTestCase()
 {
+    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
@@ -243,7 +245,7 @@ void PlasmaWindowTest::testPopupWindowNoPlasmaWindow()
     // first create the parent window
     QScopedPointer<Surface> parentSurface(Test::createSurface());
     QScopedPointer<XdgShellSurface> parentShellSurface(Test::createXdgShellStableSurface(parentSurface.data()));
-    AbstractClient *parentClient = Test::renderAndWaitForShown(parentSurface.data(), QSize(100, 50), Qt::blue);
+    XdgShellClient *parentClient = Test::renderAndWaitForShown(parentSurface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(parentClient);
     QVERIFY(plasmaWindowCreatedSpy.wait());
     QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
@@ -254,7 +256,7 @@ void PlasmaWindowTest::testPopupWindowNoPlasmaWindow()
     positioner.setGravity(Qt::BottomEdge | Qt::RightEdge);
     QScopedPointer<Surface> popupSurface(Test::createSurface());
     QScopedPointer<XdgShellPopup> popupShellSurface(Test::createXdgShellStablePopup(popupSurface.data(), parentShellSurface.data(), positioner));
-    AbstractClient *popupClient = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::blue);
+    XdgShellClient *popupClient = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::blue);
     QVERIFY(popupClient);
     QVERIFY(!plasmaWindowCreatedSpy.wait(100));
     QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
@@ -278,7 +280,7 @@ void PlasmaWindowTest::testLockScreenNoPlasmaWindow()
     // lock
     ScreenLocker::KSldApp::self()->lock(ScreenLocker::EstablishLock::Immediate);
     QVERIFY(clientAddedSpy.wait());
-    QVERIFY(clientAddedSpy.first().first().value<AbstractClient *>()->isLockScreen());
+    QVERIFY(clientAddedSpy.first().first().value<XdgShellClient *>()->isLockScreen());
     // should not be sent to the client
     QVERIFY(plasmaWindowCreatedSpy.isEmpty());
     QVERIFY(!plasmaWindowCreatedSpy.wait());

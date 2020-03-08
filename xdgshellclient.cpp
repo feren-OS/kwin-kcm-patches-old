@@ -153,7 +153,7 @@ void XdgShellClient::init()
         connect(this, &AbstractClient::clientStartUserMovedResized, this, configure);
         connect(this, &AbstractClient::clientFinishUserMovedResized, this, configure);
 
-        connect(this, &XdgShellClient::frameGeometryChanged, this, &XdgShellClient::updateClientOutputs);
+        connect(this, &XdgShellClient::geometryChanged, this, &XdgShellClient::updateClientOutputs);
         connect(screens(), &Screens::changed, this, &XdgShellClient::updateClientOutputs);
     } else if (m_xdgShellPopup) {
         connect(m_xdgShellPopup, &XdgShellPopupInterface::configureAcknowledged, this, &XdgShellClient::handleConfigureAcknowledged);
@@ -192,7 +192,7 @@ void XdgShellClient::finishInit()
     if (supportsWindowRules()) {
         setupWindowRules(false);
 
-        const QRect originalGeometry = frameGeometry();
+        const QRect originalGeometry = QRect(pos(), sizeForClientSize(clientSize()));
         const QRect ruledGeometry = rules()->checkGeometry(originalGeometry, true);
         if (originalGeometry != ruledGeometry) {
             setFrameGeometry(ruledGeometry);
@@ -345,22 +345,6 @@ QSize XdgShellClient::clientSize() const
     return m_windowGeometry.size().boundedTo(boundingRect.size());
 }
 
-QSize XdgShellClient::minSize() const
-{
-    if (m_xdgShellToplevel) {
-        return rules()->checkMinSize(m_xdgShellToplevel->minimumSize());
-    }
-    return QSize(0, 0);
-}
-
-QSize XdgShellClient::maxSize() const
-{
-    if (m_xdgShellToplevel) {
-        return rules()->checkMaxSize(m_xdgShellToplevel->maximumSize());
-    }
-    return QSize(INT_MAX, INT_MAX);
-}
-
 void XdgShellClient::debug(QDebug &stream) const
 {
     stream.nospace();
@@ -373,7 +357,7 @@ bool XdgShellClient::belongsToDesktop() const
     const auto clients = waylandServer()->clients();
 
     return std::any_of(clients.constBegin(), clients.constEnd(),
-        [this](const AbstractClient *client) {
+        [this](const XdgShellClient *client) {
             if (belongsToSameApplication(client, SameApplicationChecks())) {
                 return client->isDesktop();
             }
@@ -458,6 +442,31 @@ void XdgShellClient::markAsMapped()
         setupWindowManagementInterface();
     }
     updateShowOnScreenEdge();
+}
+
+void XdgShellClient::createDecoration(const QRect &oldGeom)
+{
+    KDecoration2::Decoration *decoration = Decoration::DecorationBridge::self()->createDecoration(this);
+    if (decoration) {
+        QMetaObject::invokeMethod(decoration, "update", Qt::QueuedConnection);
+        connect(decoration, &KDecoration2::Decoration::shadowChanged, this, &Toplevel::updateShadow);
+        connect(decoration, &KDecoration2::Decoration::bordersChanged, this,
+            [this]() {
+                GeometryUpdatesBlocker blocker(this);
+                RequestGeometryBlocker requestBlocker(this);
+                const QRect oldGeometry = frameGeometry();
+                if (!isShade()) {
+                    checkWorkspacePosition(oldGeometry);
+                }
+                emit geometryShapeChanged(this, oldGeometry);
+            }
+        );
+    }
+    setDecoration(decoration);
+    // TODO: ensure the new geometry still fits into the client area (e.g. maximized windows)
+    doSetGeometry(QRect(oldGeom.topLeft(), m_windowGeometry.size() + QSize(borderLeft() + borderRight(), borderBottom() + borderTop())));
+
+    emit geometryShapeChanged(this, oldGeom);
 }
 
 void XdgShellClient::updateDecoration(bool check_workspace_pos, bool force)
@@ -560,9 +569,9 @@ void XdgShellClient::doSetGeometry(const QRect &rect)
         return;
     }
 
-    if (m_unmapped && geometryRestore().isEmpty() && !m_frameGeometry.isEmpty()) {
+    if (m_unmapped && m_geomMaximizeRestore.isEmpty() && !m_frameGeometry.isEmpty()) {
         // use first valid geometry as restore geometry
-        setGeometryRestore(m_frameGeometry);
+        m_geomMaximizeRestore = m_frameGeometry;
     }
 
     if (frameGeometryIsChanged) {
@@ -570,13 +579,12 @@ void XdgShellClient::doSetGeometry(const QRect &rect)
             workspace()->updateClientArea();
         }
         updateWindowRules(Rules::Position | Rules::Size);
-        emit frameGeometryChanged(this, frameGeometryBeforeUpdateBlocking());
     }
 
-    emit geometryShapeChanged(this, frameGeometryBeforeUpdateBlocking());
-
+    const auto old = frameGeometryBeforeUpdateBlocking();
     addRepaintDuringGeometryUpdates();
     updateGeometryBeforeUpdateBlocking();
+    emit geometryShapeChanged(this, old);
 
     if (isResize()) {
         performMoveResize();
@@ -825,7 +833,7 @@ void XdgShellClient::changeMaximize(bool horizontal, bool vertical, bool adjust)
     const auto oldQuickTileMode = quickTileMode();
     if (quickTileMode() != QuickTileMode(QuickTileFlag::None)) {
         if (oldMode == MaximizeFull &&
-                !clientArea.contains(geometryRestore().center())) {
+                !clientArea.contains(m_geomMaximizeRestore.center())) {
             // Not restoring on the same screen
             // TODO: The following doesn't work for some reason
             //quick_tile_mode = QuickTileNone; // And exit quick tile mode manually
@@ -837,7 +845,7 @@ void XdgShellClient::changeMaximize(bool horizontal, bool vertical, bool adjust)
     }
 
     if (m_requestedMaximizeMode == MaximizeFull) {
-        setGeometryRestore(oldGeometry);
+        m_geomMaximizeRestore = oldGeometry;
         // TODO: Client has more checks
         if (options->electricBorderMaximize()) {
             updateQuickTileMode(QuickTileFlag::Maximize);
@@ -857,12 +865,17 @@ void XdgShellClient::changeMaximize(bool horizontal, bool vertical, bool adjust)
             emit quickTileModeChanged();
         }
 
-        if (geometryRestore().isValid()) {
-            setFrameGeometry(geometryRestore());
+        if (m_geomMaximizeRestore.isValid()) {
+            setFrameGeometry(m_geomMaximizeRestore);
         } else {
             setFrameGeometry(workspace()->clientArea(PlacementArea, this));
         }
     }
+}
+
+void XdgShellClient::setGeometryRestore(const QRect &geo)
+{
+    m_geomMaximizeRestore = geo;
 }
 
 MaximizeMode XdgShellClient::maximizeMode() const
@@ -873,6 +886,11 @@ MaximizeMode XdgShellClient::maximizeMode() const
 MaximizeMode XdgShellClient::requestedMaximizeMode() const
 {
     return m_requestedMaximizeMode;
+}
+
+QRect XdgShellClient::geometryRestore() const
+{
+    return m_geomMaximizeRestore;
 }
 
 bool XdgShellClient::noBorder() const
@@ -933,7 +951,7 @@ void XdgShellClient::setFullScreen(bool set, bool user)
     } else {
         if (m_geomFsRestore.isValid()) {
             int currentScreen = screen();
-            setFrameGeometry(QRect(m_geomFsRestore.topLeft(), constrainFrameSize(m_geomFsRestore.size())));
+            setFrameGeometry(QRect(m_geomFsRestore.topLeft(), adjustedSize(m_geomFsRestore.size())));
             if( currentScreen != screen())
                 workspace()->sendClientToScreen( this, currentScreen );
         } else {
@@ -1155,7 +1173,7 @@ void XdgShellClient::handleTransientForChanged()
     if (!transientSurface) {
         transientSurface = waylandServer()->findForeignTransientForSurface(surface());
     }
-    AbstractClient *transientClient = waylandServer()->findClient(transientSurface);
+    XdgShellClient *transientClient = waylandServer()->findClient(transientSurface);
     if (transientClient != transientFor()) {
         // Remove from main client.
         if (transientFor()) {
@@ -1400,11 +1418,6 @@ void XdgShellClient::installPlasmaShellSurface(PlasmaShellSurfaceInterface *surf
             workspace()->updateClientArea();
         }
     };
-    connect(surface, &PlasmaShellSurfaceInterface::panelTakesFocusChanged , this, [this, surface]() {
-        if (surface->panelTakesFocus()) {
-            workspace()->activateClient(this);
-        }
-    });
     connect(surface, &PlasmaShellSurfaceInterface::positionChanged, this, updatePosition);
     connect(surface, &PlasmaShellSurfaceInterface::roleChanged, this, updateRole);
     connect(surface, &PlasmaShellSurfaceInterface::panelBehaviorChanged, this,
@@ -1430,7 +1443,7 @@ void XdgShellClient::installPlasmaShellSurface(PlasmaShellSurfaceInterface *surf
     updatePosition();
     updateRole();
     updateShowOnScreenEdge();
-    connect(this, &XdgShellClient::frameGeometryChanged, this, &XdgShellClient::updateShowOnScreenEdge);
+    connect(this, &XdgShellClient::geometryChanged, this, &XdgShellClient::updateShowOnScreenEdge);
 
     setSkipTaskbar(surface->skipTaskbar());
     connect(surface, &PlasmaShellSurfaceInterface::skipTaskbarChanged, this, [this] {
@@ -1619,8 +1632,6 @@ bool XdgShellClient::hasTransientPlacementHint() const
 
 QRect XdgShellClient::transientPlacement(const QRect &bounds) const
 {
-    Q_ASSERT(m_xdgShellPopup);
-
     QRect anchorRect;
     Qt::Edges anchorEdge;
     Qt::Edges gravity;
@@ -1629,6 +1640,7 @@ QRect XdgShellClient::transientPlacement(const QRect &bounds) const
     QSize size = frameGeometry().size();
 
     const QPoint parentClientPos = transientFor()->pos() + transientFor()->clientPos();
+    QRect popupPosition;
 
     // returns if a target is within the supplied bounds, optional edges argument states which side to check
     auto inBounds = [bounds](const QRect &target, Qt::Edges edges = Qt::LeftEdge | Qt::RightEdge | Qt::TopEdge | Qt::BottomEdge) -> bool {
@@ -1648,25 +1660,31 @@ QRect XdgShellClient::transientPlacement(const QRect &bounds) const
         return true;
     };
 
-    anchorRect = m_xdgShellPopup->anchorRect();
-    anchorEdge = m_xdgShellPopup->anchorEdge();
-    gravity = m_xdgShellPopup->gravity();
-    offset = m_xdgShellPopup->anchorOffset();
-    constraintAdjustments = m_xdgShellPopup->constraintAdjustments();
-    if (!size.isValid()) {
-        size = m_xdgShellPopup->initialSize();
+    if (m_xdgShellPopup) {
+        anchorRect = m_xdgShellPopup->anchorRect();
+        anchorEdge = m_xdgShellPopup->anchorEdge();
+        gravity = m_xdgShellPopup->gravity();
+        offset = m_xdgShellPopup->anchorOffset();
+        constraintAdjustments = m_xdgShellPopup->constraintAdjustments();
+        if (!size.isValid()) {
+            size = m_xdgShellPopup->initialSize();
+        }
+    } else {
+        Q_UNREACHABLE();
     }
 
-    QRect popupRect(popupOffset(anchorRect, anchorEdge, gravity, size) + offset + parentClientPos, size);
+
+    //initial position
+    popupPosition = QRect(popupOffset(anchorRect, anchorEdge, gravity, size) + offset + parentClientPos, size);
 
     //if that fits, we don't need to do anything
-    if (inBounds(popupRect)) {
-        return popupRect;
+    if (inBounds(popupPosition)) {
+        return popupPosition;
     }
     //otherwise apply constraint adjustment per axis in order XDG Shell Popup states
 
     if (constraintAdjustments & PositionerConstraint::FlipX) {
-        if (!inBounds(popupRect, Qt::LeftEdge | Qt::RightEdge)) {
+        if (!inBounds(popupPosition, Qt::LeftEdge | Qt::RightEdge)) {
             //flip both edges (if either bit is set, XOR both)
             auto flippedAnchorEdge = anchorEdge;
             if (flippedAnchorEdge & (Qt::LeftEdge | Qt::RightEdge)) {
@@ -1676,39 +1694,30 @@ QRect XdgShellClient::transientPlacement(const QRect &bounds) const
             if (flippedGravity & (Qt::LeftEdge | Qt::RightEdge)) {
                 flippedGravity ^= (Qt::LeftEdge | Qt::RightEdge);
             }
-            auto flippedPopupRect = QRect(popupOffset(anchorRect, flippedAnchorEdge, flippedGravity, size) + offset + parentClientPos, size);
+            auto flippedPopupPosition = QRect(popupOffset(anchorRect, flippedAnchorEdge, flippedGravity, size) + offset + parentClientPos, size);
 
             //if it still doesn't fit we should continue with the unflipped version
-            if (inBounds(flippedPopupRect, Qt::LeftEdge | Qt::RightEdge)) {
-                popupRect.moveLeft(flippedPopupRect.left());
+            if (inBounds(flippedPopupPosition, Qt::LeftEdge | Qt::RightEdge)) {
+                popupPosition.moveLeft(flippedPopupPosition.x());
             }
         }
     }
     if (constraintAdjustments & PositionerConstraint::SlideX) {
-        if (!inBounds(popupRect, Qt::LeftEdge)) {
-            popupRect.moveLeft(bounds.left());
+        if (!inBounds(popupPosition, Qt::LeftEdge)) {
+            popupPosition.moveLeft(bounds.x());
         }
-        if (!inBounds(popupRect, Qt::RightEdge)) {
-            popupRect.moveRight(bounds.right());
+        if (!inBounds(popupPosition, Qt::RightEdge)) {
+            // moveRight suffers from the classic QRect off by one issue
+            popupPosition.moveLeft(bounds.x() + bounds.width() - size.width());
         }
     }
     if (constraintAdjustments & PositionerConstraint::ResizeX) {
-        QRect unconstrainedRect = popupRect;
-
-        if (!inBounds(unconstrainedRect, Qt::LeftEdge)) {
-            unconstrainedRect.setLeft(bounds.left());
-        }
-        if (!inBounds(unconstrainedRect, Qt::RightEdge)) {
-            unconstrainedRect.setRight(bounds.right());
-        }
-
-        if (unconstrainedRect.isValid()) {
-            popupRect = unconstrainedRect;
-        }
+        //TODO
+        //but we need to sort out when this is run as resize should only happen before first configure
     }
 
     if (constraintAdjustments & PositionerConstraint::FlipY) {
-        if (!inBounds(popupRect, Qt::TopEdge | Qt::BottomEdge)) {
+        if (!inBounds(popupPosition, Qt::TopEdge | Qt::BottomEdge)) {
             //flip both edges (if either bit is set, XOR both)
             auto flippedAnchorEdge = anchorEdge;
             if (flippedAnchorEdge & (Qt::TopEdge | Qt::BottomEdge)) {
@@ -1718,38 +1727,27 @@ QRect XdgShellClient::transientPlacement(const QRect &bounds) const
             if (flippedGravity & (Qt::TopEdge | Qt::BottomEdge)) {
                 flippedGravity ^= (Qt::TopEdge | Qt::BottomEdge);
             }
-            auto flippedPopupRect = QRect(popupOffset(anchorRect, flippedAnchorEdge, flippedGravity, size) + offset + parentClientPos, size);
+            auto flippedPopupPosition = QRect(popupOffset(anchorRect, flippedAnchorEdge, flippedGravity, size) + offset + parentClientPos, size);
 
             //if it still doesn't fit we should continue with the unflipped version
-            if (inBounds(flippedPopupRect, Qt::TopEdge | Qt::BottomEdge)) {
-                popupRect.moveTop(flippedPopupRect.top());
+            if (inBounds(flippedPopupPosition, Qt::TopEdge | Qt::BottomEdge)) {
+                popupPosition.moveTop(flippedPopupPosition.y());
             }
         }
     }
     if (constraintAdjustments & PositionerConstraint::SlideY) {
-        if (!inBounds(popupRect, Qt::TopEdge)) {
-            popupRect.moveTop(bounds.top());
+        if (!inBounds(popupPosition, Qt::TopEdge)) {
+            popupPosition.moveTop(bounds.y());
         }
-        if (!inBounds(popupRect, Qt::BottomEdge)) {
-            popupRect.moveBottom(bounds.bottom());
+        if (!inBounds(popupPosition, Qt::BottomEdge)) {
+            popupPosition.moveTop(bounds.y() + bounds.height() - size.height());
         }
     }
     if (constraintAdjustments & PositionerConstraint::ResizeY) {
-        QRect unconstrainedRect = popupRect;
-
-        if (!inBounds(unconstrainedRect, Qt::TopEdge)) {
-            unconstrainedRect.setTop(bounds.top());
-        }
-        if (!inBounds(unconstrainedRect, Qt::BottomEdge)) {
-            unconstrainedRect.setBottom(bounds.bottom());
-        }
-
-        if (unconstrainedRect.isValid()) {
-            popupRect = unconstrainedRect;
-        }
+        //TODO
     }
 
-    return popupRect;
+    return popupPosition;
 }
 
 QPoint XdgShellClient::popupOffset(const QRect &anchorRect, const Qt::Edges anchorEdge, const Qt::Edges gravity, const QSize popupSize) const
@@ -1907,6 +1905,12 @@ void XdgShellClient::doMinimize()
         emit windowShown(this);
     }
     workspace()->updateMinimizedOfTransients(this);
+}
+
+void XdgShellClient::placeIn(const QRect &area)
+{
+    Placement::self()->place(this, area);
+    setGeometryRestore(frameGeometry());
 }
 
 void XdgShellClient::showOnScreenEdge()

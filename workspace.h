@@ -565,9 +565,6 @@ private:
     Unmanaged* createUnmanaged(xcb_window_t w);
     void addUnmanaged(Unmanaged* c);
 
-    void addShellClient(AbstractClient *client);
-    void removeShellClient(AbstractClient *client);
-
     //---------------------------------------------------------------------
 
     void closeActivePopup();

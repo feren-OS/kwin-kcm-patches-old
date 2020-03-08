@@ -546,15 +546,6 @@ public:
         return s_virtualScreenScale;
     }
 
-    /**
-     * The framebuffer of KWin's OpenGL window or other object currently being rendered to
-     *
-     * @since 5.18
-     */
-    static void setKWinFramebuffer(GLuint fb) {
-        s_kwinFramebuffer = fb;
-    }
-
 
 protected:
     void initFBO();
@@ -570,7 +561,6 @@ private:
     static QRect s_virtualScreenGeometry;
     static qreal s_virtualScreenScale;
     static GLint s_virtualScreenViewport[4];
-    static GLuint s_kwinFramebuffer;
 
     GLTexture mTexture;
     bool mValid;

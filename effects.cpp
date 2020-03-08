@@ -258,18 +258,20 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
         setupAbstractClientConnections(client);
     }
     if (auto w = waylandServer()) {
-        connect(w, &WaylandServer::shellClientAdded, this, [this](AbstractClient *c) {
-            if (c->readyForPainting())
-                slotWaylandClientShown(c);
-            else
-                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotWaylandClientShown);
-        });
+        connect(w, &WaylandServer::shellClientAdded, this,
+            [this](XdgShellClient *c) {
+                if (c->readyForPainting())
+                    slotXdgShellClientShown(c);
+                else
+                    connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotXdgShellClientShown);
+            }
+        );
         const auto clients = waylandServer()->clients();
-        for (AbstractClient *c : clients) {
+        for (XdgShellClient *c : clients) {
             if (c->readyForPainting()) {
                 setupAbstractClientConnections(c);
             } else {
-                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotWaylandClientShown);
+                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotXdgShellClientShown);
             }
         }
     }
@@ -332,7 +334,6 @@ void EffectsHandlerImpl::setupAbstractClientConnections(AbstractClient* c)
     );
     connect(c, &AbstractClient::modalChanged,         this, &EffectsHandlerImpl::slotClientModalityChanged);
     connect(c, &AbstractClient::geometryShapeChanged, this, &EffectsHandlerImpl::slotGeometryShapeChanged);
-    connect(c, &AbstractClient::frameGeometryChanged, this, &EffectsHandlerImpl::slotFrameGeometryChanged);
     connect(c, &AbstractClient::damaged,              this, &EffectsHandlerImpl::slotWindowDamaged);
     connect(c, &AbstractClient::unresponsiveChanged, this,
         [this, c](bool unresponsive) {
@@ -379,7 +380,6 @@ void EffectsHandlerImpl::setupUnmanagedConnections(Unmanaged* u)
     connect(u, &Unmanaged::windowClosed,         this, &EffectsHandlerImpl::slotWindowClosed);
     connect(u, &Unmanaged::opacityChanged,       this, &EffectsHandlerImpl::slotOpacityChanged);
     connect(u, &Unmanaged::geometryShapeChanged, this, &EffectsHandlerImpl::slotGeometryShapeChanged);
-    connect(u, &Unmanaged::frameGeometryChanged, this, &EffectsHandlerImpl::slotFrameGeometryChanged);
     connect(u, &Unmanaged::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
     connect(u, &Unmanaged::damaged,              this, &EffectsHandlerImpl::slotWindowDamaged);
 }
@@ -576,11 +576,11 @@ void EffectsHandlerImpl::slotClientShown(KWin::Toplevel *t)
     emit windowAdded(c->effectWindow());
 }
 
-void EffectsHandlerImpl::slotWaylandClientShown(Toplevel *toplevel)
+void EffectsHandlerImpl::slotXdgShellClientShown(Toplevel *t)
 {
-    AbstractClient *client = static_cast<AbstractClient *>(toplevel);
-    setupAbstractClientConnections(client);
-    emit windowAdded(toplevel->effectWindow());
+    XdgShellClient *c = static_cast<XdgShellClient *>(t);
+    setupAbstractClientConnections(c);
+    emit windowAdded(t->effectWindow());
 }
 
 void EffectsHandlerImpl::slotUnmanagedShown(KWin::Toplevel *t)
@@ -635,14 +635,6 @@ void EffectsHandlerImpl::slotGeometryShapeChanged(Toplevel* t, const QRect& old)
     if (t == nullptr || t->effectWindow() == nullptr)
         return;
     emit windowGeometryShapeChanged(t->effectWindow(), old);
-}
-
-void EffectsHandlerImpl::slotFrameGeometryChanged(Toplevel *toplevel, const QRect &oldGeometry)
-{
-    // effectWindow() might be nullptr during tear down of the client.
-    if (toplevel->effectWindow()) {
-        emit windowFrameGeometryChanged(toplevel->effectWindow(), oldGeometry);
-    }
 }
 
 void EffectsHandlerImpl::slotPaddingChanged(Toplevel* t, const QRect& old)
@@ -1088,7 +1080,7 @@ EffectWindow* EffectsHandlerImpl::findWindow(WId id) const
     if (Unmanaged* w = Workspace::self()->findUnmanaged(id))
         return w->effectWindow();
     if (waylandServer()) {
-        if (AbstractClient *w = waylandServer()->findClient(id)) {
+        if (XdgShellClient *w = waylandServer()->findClient(id)) {
             return w->effectWindow();
         }
     }
@@ -1098,7 +1090,7 @@ EffectWindow* EffectsHandlerImpl::findWindow(WId id) const
 EffectWindow* EffectsHandlerImpl::findWindow(KWayland::Server::SurfaceInterface *surf) const
 {
     if (waylandServer()) {
-        if (AbstractClient *w = waylandServer()->findClient(surf)) {
+        if (XdgShellClient *w = waylandServer()->findClient(surf)) {
             return w->effectWindow();
         }
     }

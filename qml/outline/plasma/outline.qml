@@ -116,19 +116,19 @@ Window {
         }
 
         Behavior on x {
-            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutCubic; }
+            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutQuad; }
             enabled: window.animationEnabled
         }
         Behavior on y {
-            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutCubic; }
+            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutQuad; }
             enabled: window.animationEnabled
         }
         Behavior on width {
-            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutCubic; }
+            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutQuad; }
             enabled: window.animationEnabled
         }
         Behavior on height {
-            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutCubic; }
+            NumberAnimation { duration: window.animationDuration; easing.type: Easing.InOutQuad; }
             enabled: window.animationEnabled
         }
     }

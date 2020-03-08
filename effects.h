@@ -296,14 +296,13 @@ public Q_SLOTS:
 
 protected Q_SLOTS:
     void slotClientShown(KWin::Toplevel*);
-    void slotWaylandClientShown(KWin::Toplevel*);
+    void slotXdgShellClientShown(KWin::Toplevel*);
     void slotUnmanagedShown(KWin::Toplevel*);
     void slotWindowClosed(KWin::Toplevel *c, KWin::Deleted *d);
     void slotClientMaximized(KWin::AbstractClient *c, MaximizeMode maxMode);
     void slotOpacityChanged(KWin::Toplevel *t, qreal oldOpacity);
     void slotClientModalityChanged();
     void slotGeometryShapeChanged(KWin::Toplevel *t, const QRect &old);
-    void slotFrameGeometryChanged(Toplevel *toplevel, const QRect &oldGeometry);
     void slotPaddingChanged(KWin::Toplevel *t, const QRect &old);
     void slotWindowDamaged(KWin::Toplevel *t, const QRect& r);
 

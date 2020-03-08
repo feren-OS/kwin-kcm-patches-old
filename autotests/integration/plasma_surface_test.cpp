@@ -18,9 +18,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 #include "kwin_wayland_test.h"
-#include "abstract_client.h"
 #include "platform.h"
 #include "cursor.h"
+#include "xdgshellclient.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -70,7 +70,7 @@ private:
 
 void PlasmaSurfaceTest::initTestCase()
 {
-    qRegisterMetaType<KWin::AbstractClient *>();
+    qRegisterMetaType<KWin::XdgShellClient *>();
     QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
     QVERIFY(workspaceCreatedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
@@ -241,10 +241,10 @@ void PlasmaSurfaceTest::testOSDPlacement()
     QCOMPARE(c->frameGeometry(), QRect(590, 649, 100, 50));
 
     // change size of window
-    QSignalSpy frameGeometryChangedSpy(c, &AbstractClient::frameGeometryChanged);
-    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy geometryChangedSpy(c, &AbstractClient::geometryShapeChanged);
+    QVERIFY(geometryChangedSpy.isValid());
     Test::render(surface.data(), QSize(200, 100), Qt::red);
-    QVERIFY(frameGeometryChangedSpy.wait());
+    QVERIFY(geometryChangedSpy.wait());
     QCOMPARE(c->frameGeometry(), QRect(540, 616, 200, 100));
 }
 
