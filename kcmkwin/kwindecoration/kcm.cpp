@@ -252,6 +252,11 @@ void KCMKWinDecoration::setTheme(int index)
         m_settings->setTheme(m_proxyThemesModel->data(dataIndex, KDecoration2::Configuration::DecorationsModel::ThemeNameRole).toString());
         m_settings->setPluginName(m_proxyThemesModel->data(dataIndex, KDecoration2::Configuration::DecorationsModel::PluginNameRole).toString());
         emit themeChanged();
+        if (m_proxyThemesModel->data(dataIndex, KDecoration2::Configuration::DecorationsModel::PluginNameRole).toString() == "org.kde.kwin.aurorae") {
+            std::system("/usr/bin/feren-theme-tool-plasma disableshadowfix");
+        } else {
+            std::system("/usr/bin/feren-theme-tool-plasma shadowfix");
+        }
     }
 }
 
