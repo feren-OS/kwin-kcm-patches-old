@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright 2019 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "x11windowed_output.h"
 
 #include "x11windowed_backend.h"
@@ -37,6 +26,10 @@ X11WindowedOutput::X11WindowedOutput(X11WindowedBackend *backend)
     , m_backend(backend)
 {
     m_window = xcb_generate_id(m_backend->connection());
+
+    static int identifier = -1;
+    identifier++;
+    setName("X11-" + QString::number(identifier));
 }
 
 X11WindowedOutput::~X11WindowedOutput()
@@ -49,10 +42,10 @@ X11WindowedOutput::~X11WindowedOutput()
 
 void X11WindowedOutput::init(const QPoint &logicalPosition, const QSize &pixelSize)
 {
-    KWayland::Server::OutputDeviceInterface::Mode mode;
+    KWaylandServer::OutputDeviceInterface::Mode mode;
     mode.id = 0;
     mode.size = pixelSize;
-    mode.flags = KWayland::Server::OutputDeviceInterface::ModeFlag::Current;
+    mode.flags = KWaylandServer::OutputDeviceInterface::ModeFlag::Current;
     mode.refreshRate = 60000;  // TODO: get refresh rate via randr
 
     // Physicial size must be adjusted, such that QPA calculates correct sizes of
@@ -100,7 +93,8 @@ void X11WindowedOutput::init(const QPoint &logicalPosition, const QSize &pixelSi
             return;
         }
         NETIcon icon;
-        icon.data = windowIcon.pixmap(size).toImage().bits();
+        QImage windowImage = windowIcon.pixmap(size).toImage();
+        icon.data = windowImage.bits();
         icon.size.width = size.width();
         icon.size.height = size.height();
         m_winInfo->setIcon(icon, false);

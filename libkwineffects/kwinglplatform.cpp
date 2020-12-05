@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2010 Fredrik Höglund <fredrik@kde.org>
+    SPDX-FileCopyrightText: 2010 Fredrik Höglund <fredrik@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "kwinglplatform.h"
 // include kwinglutils_funcs.h to avoid the redeclaration issues
@@ -24,7 +13,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "kwinglutils_funcs.h"
 #include <epoxy/gl.h>
 
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QStringList>
 #include <QDebug>
 #include <QOpenGLContext>
@@ -94,14 +83,13 @@ static qint64 getKernelVersion()
 }
 
 // Extracts the portion of a string that matches a regular expression
-static QString extract(const QString &string, const QString &match, int offset = 0)
+static QString extract(const QString &text, const QString &pattern)
 {
-    QString result;
-    QRegExp rx(match);
-    int pos = rx.indexIn(string, offset);
-    if (pos != -1)
-        result = string.mid(pos, rx.matchedLength());
-    return result;
+    const QRegularExpression regexp(pattern);
+    const QRegularExpressionMatch match = regexp.match(text);
+    if (!match.hasMatch())
+        return QString();
+    return match.captured();
 }
 
 static ChipClass detectRadeonClass(const QByteArray &chipset)
@@ -687,7 +675,8 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
         }
     } else {
         const QByteArray extensions = (const char *) glGetString(GL_EXTENSIONS);
-        m_extensions = QSet<QByteArray>::fromList(extensions.split(' '));
+        QList<QByteArray> extensionsList = extensions.split(' ');
+        m_extensions = {extensionsList.constBegin(), extensionsList.constEnd()};
     }
 
     // Parse the Mesa version
@@ -905,12 +894,12 @@ void GLPlatform::detect(OpenGLPlatformInterface platformInterface)
         }
 
         // softpipe
-        else if (m_vendor == "VMware, Inc." && m_chipset == "softpipe" ) {
+        else if (m_chipset == "softpipe") {
             m_driver = Driver_Softpipe;
         }
 
         // llvmpipe
-        else if (m_vendor == "VMware, Inc." && m_chipset == "llvmpipe") {
+        else if (m_chipset == "llvmpipe") {
             m_driver = Driver_Llvmpipe;
         }
 

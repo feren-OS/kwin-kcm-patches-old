@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2014 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2014 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "settings.h"
 // KWin
 #include "decorationbridge.h"
@@ -56,9 +45,7 @@ SettingsImpl::SettingsImpl(KDecoration2::DecorationSettings *parent)
     );
     // prevent changes in Decoration due to Compositor being destroyed
     connect(Compositor::self(), &Compositor::aboutToDestroy, this,
-        [this, c] {
-            disconnect(c);
-        }
+        [c] { disconnect(c); }
     );
     connect(Workspace::self(), &Workspace::configChanged, this, &SettingsImpl::readSettings);
     connect(DecorationBridge::self(), &DecorationBridge::metaDataLoaded, this, &SettingsImpl::readSettings);

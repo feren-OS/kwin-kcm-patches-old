@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006-2007 Rivo Laks <rivolaks@hot.ee>
-Copyright (C) 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2006-2007 Rivo Laks <rivolaks@hot.ee>
+    SPDX-FileCopyrightText: 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "kwinglutils.h"
 
@@ -225,9 +214,6 @@ const QByteArray GLShader::prepareSource(GLenum shaderType, const QByteArray &so
     QByteArray ba;
     if (GLPlatform::instance()->isGLES() && GLPlatform::instance()->glslVersion() < kVersionNumber(3, 0)) {
         ba.append("precision highp float;\n");
-    }
-    if (ShaderManager::instance()->isShaderDebug()) {
-        ba.append("#define KWIN_SHADER_DEBUG 1\n");
     }
     ba.append(source);
     if (GLPlatform::instance()->isGLES() && GLPlatform::instance()->glslVersion() >= kVersionNumber(3, 0)) {
@@ -557,8 +543,6 @@ void ShaderManager::cleanup()
 
 ShaderManager::ShaderManager()
 {
-    m_debug = qstrcmp(qgetenv("KWIN_GL_DEBUG"), "1") == 0;
-
     const qint64 coreVersionNumber = GLPlatform::instance()->isGLES() ? kVersionNumber(3, 0) : kVersionNumber(1, 40);
     if (GLPlatform::instance()->glslVersion() >= coreVersionNumber) {
         m_resourcePath = QStringLiteral(":/effect-shaders-1.40/");
@@ -995,11 +979,6 @@ bool ShaderManager::isShaderBound() const
     return !m_boundShaders.isEmpty();
 }
 
-bool ShaderManager::isShaderDebug() const
-{
-    return m_debug;
-}
-
 GLShader *ShaderManager::pushShader(ShaderTraits traits)
 {
     GLShader *shader = this->shader(traits);
@@ -1061,6 +1040,7 @@ QSize GLRenderTarget::s_virtualScreenSize;
 QRect GLRenderTarget::s_virtualScreenGeometry;
 qreal GLRenderTarget::s_virtualScreenScale = 1.0;
 GLint GLRenderTarget::s_virtualScreenViewport[4];
+GLuint GLRenderTarget::s_kwinFramebuffer = 0;
 
 void GLRenderTarget::initStatic()
 {
@@ -1185,7 +1165,7 @@ bool GLRenderTarget::disable()
         return false;
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, s_kwinFramebuffer);
     mTexture.setDirty();
 
     return true;
@@ -1256,7 +1236,7 @@ void GLRenderTarget::initFBO()
 #if DEBUG_GLRENDERTARGET
     if ((err = glGetError()) != GL_NO_ERROR) {
         qCCritical(LIBKWINGLUTILS) << "glFramebufferTexture2D failed: " << formatGLError(err);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_kwinFramebuffer);
         glDeleteFramebuffers(1, &mFramebuffer);
         return;
     }
@@ -1264,7 +1244,7 @@ void GLRenderTarget::initFBO()
 
     const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, s_kwinFramebuffer);
 
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         // We have an incomplete framebuffer, consider it invalid
@@ -1291,7 +1271,7 @@ void GLRenderTarget::blitFromFramebuffer(const QRect &source, const QRect &desti
 
     GLRenderTarget::pushRenderTarget(this);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFramebuffer);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, s_kwinFramebuffer);
     const QRect s = source.isNull() ? s_virtualScreenGeometry : source;
     const QRect d = destination.isNull() ? QRect(0, 0, mTexture.width(), mTexture.height()) : destination;
 

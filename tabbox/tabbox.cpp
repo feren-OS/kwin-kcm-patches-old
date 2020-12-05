@@ -1,24 +1,13 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2009 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2009 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 //#define QT_CLEAN_NAMESPACE
 // own
@@ -318,16 +307,12 @@ void TabBoxHandlerImpl::elevateClient(TabBoxClient *c, QWindow *tabbox, bool b) 
 
 void TabBoxHandlerImpl::shadeClient(TabBoxClient *c, bool b) const
 {
-    X11Client *cl = dynamic_cast<X11Client *>(static_cast<TabBoxClientImpl*>(c)->client());
-    if (!cl) {
-        // shading is X11 specific
-        return;
-    }
-    cl->cancelShadeHoverTimer(); // stop core shading action
-    if (!b && cl->shadeMode() == ShadeNormal)
-        cl->setShade(ShadeHover);
-    else if (b && cl->shadeMode() == ShadeHover)
-        cl->setShade(ShadeNormal);
+    AbstractClient *client = static_cast<TabBoxClientImpl *>(c)->client();
+    client->cancelShadeHoverTimer(); // stop core shading action
+    if (!b && client->shadeMode() == ShadeNormal)
+        client->setShade(ShadeHover);
+    else if (b && client->shadeMode() == ShadeHover)
+        client->setShade(ShadeNormal);
 }
 
 QWeakPointer<TabBoxClient> TabBoxHandlerImpl::desktopClient() const
@@ -1374,7 +1359,7 @@ void TabBox::keyPress(int keyQt)
                     QTimer::singleShot(50, this, replayWithChangedTabboxMode);
                 }
                 break;
-            } else if (++j > ModeCount) { // guarding counter for invalid modes
+            } else if (++j > 2*ModeCount) { // guarding counter for invalid modes
                 qCDebug(KWIN_TABBOX) << "Invalid TabBoxMode";
                 return;
             }

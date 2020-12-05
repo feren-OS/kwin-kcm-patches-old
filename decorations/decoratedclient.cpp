@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2014 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2014 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "decoratedclient.h"
 #include "decorationbridge.h"
 #include "decorationpalette.h"
@@ -54,7 +43,7 @@ DecoratedClientImpl::DecoratedClientImpl(AbstractClient *client, KDecoration2::D
             emit decoratedClient->activeChanged(client->isActive());
         }
     );
-    connect(client, &AbstractClient::geometryChanged, this,
+    connect(client, &AbstractClient::clientGeometryChanged, this,
         [decoratedClient, this]() {
             if (m_client->clientSize() == m_clientSize) {
                 return;
@@ -123,7 +112,7 @@ DecoratedClientImpl::DecoratedClientImpl(AbstractClient *client, KDecoration2::D
                 int fallAsleepDelay = QApplication::style()->styleHint(QStyle::SH_ToolTip_FallAsleepDelay);
                 this->m_toolTipFallAsleep.setRemainingTime(fallAsleepDelay);
 
-                QToolTip::showText(Cursor::pos(), this->m_toolTipText);
+                QToolTip::showText(Cursors::self()->mouse()->pos(), this->m_toolTipText);
                 m_toolTipShowing = true;
             }
     );
@@ -241,7 +230,7 @@ void DecoratedClientImpl::requestHideToolTip()
 void DecoratedClientImpl::requestShowWindowMenu()
 {
     // TODO: add rect to requestShowWindowMenu
-    Workspace::self()->showWindowMenu(QRect(Cursor::pos(), Cursor::pos()), m_client);
+    Workspace::self()->showWindowMenu(QRect(Cursors::self()->mouse()->pos(), Cursors::self()->mouse()->pos()), m_client);
 }
 
 void DecoratedClientImpl::requestShowApplicationMenu(const QRect &rect, int actionId)

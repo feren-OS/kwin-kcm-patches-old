@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2007 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2008 Lucas Murray <lmurray@undefinedfire.com>
+    SPDX-FileCopyrightText: 2007 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2008 Lucas Murray <lmurray@undefinedfire.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_DESKTOPGRID_H
 #define KWIN_DESKTOPGRID_H
@@ -25,34 +14,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <kwineffects.h>
 #include <QObject>
 #include <QTimeLine>
-#include <QQuickView>
+
+#include "kwineffectquickview.h"
 
 namespace KWin
 {
 
 class PresentWindowsEffectProxy;
-
-class DesktopButtonsView : public QQuickView
-{
-    Q_OBJECT
-public:
-    explicit DesktopButtonsView(QWindow *parent = nullptr);
-    void windowInputMouseEvent(QMouseEvent* e);
-    void setAddDesktopEnabled(bool enable);
-    void setRemoveDesktopEnabled(bool enable);
-    bool isVisible() const;
-    void show();
-    void hide();
-public:
-    EffectWindow *effectWindow;
-Q_SIGNALS:
-    void addDesktop();
-    void removeDesktop();
-private:
-    bool m_visible;
-    QPoint m_pos;
-    bool m_posIsValid;
-};
 
 class DesktopGridEffect
     : public Effect
@@ -115,7 +83,7 @@ private Q_SLOTS:
     void slotWindowClosed(KWin::EffectWindow *w);
     void slotWindowDeleted(KWin::EffectWindow *w);
     void slotNumberDesktopsChanged(uint old);
-    void slotWindowGeometryShapeChanged(KWin::EffectWindow *w, const QRect &old);
+    void slotWindowFrameGeometryChanged(KWin::EffectWindow *w, const QRect &old);
 
 private:
     QPointF scalePos(const QPoint& pos, int desktop, int screen = -1) const;
@@ -182,7 +150,7 @@ private:
     QRect m_windowMoveGeometry;
     QPoint m_windowMoveStartPoint;
 
-    QVector<DesktopButtonsView*> m_desktopButtonsViews;
+    QVector<EffectQuickScene*> m_desktopButtons;
 
     QAction *m_activateAction;
 

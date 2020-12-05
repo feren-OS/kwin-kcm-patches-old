@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013 Antonis Tsiapaliokas <kok3rs@gmail.com>
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2013 Antonis Tsiapaliokas <kok3rs@gmail.com>
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "effectsmodel.h"
 
@@ -50,7 +39,6 @@ static QString translatedCategory(const QString &category)
     static const QVector<QString> knownCategories = {
         QStringLiteral("Accessibility"),
         QStringLiteral("Appearance"),
-        QStringLiteral("Candy"),
         QStringLiteral("Focus"),
         QStringLiteral("Show Desktop Animation"),
         QStringLiteral("Tools"),
@@ -62,7 +50,6 @@ static QString translatedCategory(const QString &category)
     static const QVector<QString> translatedCategories = {
         i18nc("Category of Desktop Effects, used as section header", "Accessibility"),
         i18nc("Category of Desktop Effects, used as section header", "Appearance"),
-        i18nc("Category of Desktop Effects, used as section header", "Candy"),
         i18nc("Category of Desktop Effects, used as section header", "Focus"),
         i18nc("Category of Desktop Effects, used as section header", "Show Desktop Animation"),
         i18nc("Category of Desktop Effects, used as section header", "Tools"),
@@ -668,9 +655,7 @@ void EffectsModel::requestConfigure(const QModelIndex &index, QWindow *transient
     layout->addWidget(module);
     layout->addWidget(buttons);
 
-    connect(dialog, &QDialog::accepted, module, [module]() {
-        module->save();
-    });
+    connect(dialog, &QDialog::accepted, module, &KCModule::save);
 
     dialog->setModal(true);
     dialog->setAttribute(Qt::WA_DeleteOnClose);

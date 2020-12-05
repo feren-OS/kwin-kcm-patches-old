@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016, 2017 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016, 2017 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "keyboard_layout.h"
 #include "keyboard_layout_switching.h"
 #include "keyboard_input.h"
@@ -76,8 +65,10 @@ void KeyboardLayout::init()
 void KeyboardLayout::initDBusInterface()
 {
     if (m_xkb->numberOfLayouts() <= 1) {
-        delete m_dbusInterface;
-        m_dbusInterface = nullptr;
+        if (m_dbusInterface) {
+            m_dbusInterface->deleteLater();
+            m_dbusInterface = nullptr;
+        }
         return;
     }
     if (m_dbusInterface) {
@@ -118,11 +109,11 @@ void KeyboardLayout::initNotifierItem()
     m_notifierItem->setStatus(KStatusNotifierItem::Passive);
     m_notifierItem->setToolTipTitle(i18nc("tooltip title", "Keyboard Layout"));
     m_notifierItem->setTitle(i18nc("tooltip title", "Keyboard Layout"));
-    m_notifierItem->setToolTipIconByName(QStringLiteral("preferences-desktop-keyboard"));
+    m_notifierItem->setToolTipIconByName(QStringLiteral("input-keyboard"));
     m_notifierItem->setStandardActionsEnabled(false);
 
     // TODO: proper icon
-    m_notifierItem->setIconByName(QStringLiteral("preferences-desktop-keyboard"));
+    m_notifierItem->setIconByName(QStringLiteral("input-keyboard"));
 
     connect(m_notifierItem, &KStatusNotifierItem::activateRequested, this, &KeyboardLayout::switchToNextLayout);
     connect(m_notifierItem, &KStatusNotifierItem::scrollRequested, this,
@@ -161,13 +152,16 @@ void KeyboardLayout::reconfigure()
 {
     if (m_config) {
         m_config->reparseConfiguration();
-        const QString policyKey = m_config->group(QStringLiteral("Layout")).readEntry("SwitchMode", QStringLiteral("Global"));
+        const KConfigGroup layoutGroup = m_config->group("Layout");
+        const QString policyKey = layoutGroup.readEntry("SwitchMode", QStringLiteral("Global"));
+        m_xkb->reconfigure();
         if (!m_policy || m_policy->name() != policyKey) {
             delete m_policy;
-            m_policy = KeyboardLayoutSwitching::Policy::create(m_xkb, this, policyKey);
+            m_policy = KeyboardLayoutSwitching::Policy::create(m_xkb, this, layoutGroup, policyKey);
         }
+    } else {
+        m_xkb->reconfigure();
     }
-    m_xkb->reconfigure();
     resetLayout();
 }
 
@@ -178,9 +172,9 @@ void KeyboardLayout::resetLayout()
     updateNotifier();
     reinitNotifierMenu();
     loadShortcuts();
-    emit layoutsReconfigured();
 
     initDBusInterface();
+    emit layoutsReconfigured();
 }
 
 void KeyboardLayout::loadShortcuts()

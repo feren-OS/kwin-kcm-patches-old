@@ -21,7 +21,7 @@ target_link_libraries(kwinxrenderutils
         Qt5::Core
         Qt5::Gui
 
-        KF5::WaylandServer
+        Plasma::KWaylandServer
 
         XCB::RENDER
         XCB::XCB
@@ -88,6 +88,7 @@ set(kwin_GLUTILSLIB_SRCS
     kwingltexture.cpp
     kwinglutils.cpp
     kwinglutils_funcs.cpp
+    kwineglimagetexture.cpp
     logging.cpp
 )
 

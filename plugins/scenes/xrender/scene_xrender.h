@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_SCENE_XRENDER_H
 #define KWIN_SCENE_XRENDER_H
@@ -154,7 +143,7 @@ public:
     CompositingType compositingType() const override {
         return XRenderCompositing;
     }
-    qint64 paint(QRegion damage, QList<Toplevel *> windows) override;
+    qint64 paint(const QRegion &damage, const QList<Toplevel *> &windows) override;
     Scene::EffectFrame *createEffectFrame(EffectFrameImpl *frame) override;
     Shadow *createShadow(Toplevel *toplevel) override;
     void screenGeometryChanged(const QSize &size) override;
@@ -174,10 +163,10 @@ public:
     static SceneXrender *createScene(QObject *parent);
 protected:
     Scene::Window *createWindow(Toplevel *toplevel) override;
-    void paintBackground(QRegion region) override;
-    void paintGenericScreen(int mask, ScreenPaintData data) override;
+    void paintBackground(const QRegion &region) override;
+    void paintGenericScreen(int mask, const ScreenPaintData &data) override;
     void paintDesktop(int desktop, int mask, const QRegion &region, ScreenPaintData &data) override;
-    void paintCursor() override;
+    void paintCursor(const QRegion &region) override;
     void paintEffectQuickView(EffectQuickView *w) override;
 private:
     explicit SceneXrender(XRenderBackend *backend, QObject *parent = nullptr);
@@ -186,13 +175,14 @@ private:
     QScopedPointer<XRenderBackend> m_backend;
 };
 
-class SceneXrender::Window
-    : public Scene::Window
+class SceneXrender::Window : public Scene::Window
 {
+    Q_OBJECT
+
 public:
     Window(Toplevel* c, SceneXrender *scene);
     ~Window() override;
-    void performPaint(int mask, QRegion region, WindowPaintData data) override;
+    void performPaint(int mask, const QRegion &region, const WindowPaintData &data) override;
     QRegion transformedShape() const;
     void setTransformedShape(const QRegion& shape);
     static void cleanup();
@@ -238,7 +228,7 @@ public:
     void freeSelection() override;
     void crossFadeIcon() override;
     void crossFadeText() override;
-    void render(QRegion region, double opacity, double frameOpacity) override;
+    void render(const QRegion &region, double opacity, double frameOpacity) override;
     static void cleanup();
 
 private:

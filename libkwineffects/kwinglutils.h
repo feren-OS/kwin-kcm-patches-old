@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006-2007 Rivo Laks <rivolaks@hot.ee>
-Copyright (C) 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2006-2007 Rivo Laks <rivolaks@hot.ee>
+    SPDX-FileCopyrightText: 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_GLUTILS_H
 #define KWIN_GLUTILS_H
@@ -221,13 +210,6 @@ public:
      * @return @c true if a shader is bound, @c false otherwise
      */
     bool isShaderBound() const;
-    /**
-     * Is @c true if the environment variable KWIN_GL_DEBUG is set to 1.
-     * In that case shaders are compiled with KWIN_SHADER_DEBUG defined.
-     * @returns @c true if shaders are compiled with debug information
-     * @since 4.8
-     */
-    bool isShaderDebug() const;
 
     /**
      * Pushes the current shader onto the stack and binds a shader
@@ -332,7 +314,6 @@ private:
 
     QStack<GLShader*> m_boundShaders;
     QHash<ShaderTraits, GLShader *> m_shaderHash;
-    bool m_debug;
     QString m_resourcePath;
     static ShaderManager *s_shaderManager;
 };
@@ -546,6 +527,15 @@ public:
         return s_virtualScreenScale;
     }
 
+    /**
+     * The framebuffer of KWin's OpenGL window or other object currently being rendered to
+     *
+     * @since 5.18
+     */
+    static void setKWinFramebuffer(GLuint fb) {
+        s_kwinFramebuffer = fb;
+    }
+
 
 protected:
     void initFBO();
@@ -561,6 +551,7 @@ private:
     static QRect s_virtualScreenGeometry;
     static qreal s_virtualScreenScale;
     static GLint s_virtualScreenViewport[4];
+    static GLuint s_kwinFramebuffer;
 
     GLTexture mTexture;
     bool mValid;

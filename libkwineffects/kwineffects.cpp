@@ -1,24 +1,13 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2009 Lucas Murray <lmurray@undefinedfire.com>
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2009 Lucas Murray <lmurray@undefinedfire.com>
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "kwineffects.h"
 
@@ -41,7 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <ksharedconfig.h>
 #include <kconfiggroup.h>
 
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #ifdef KWIN_HAVE_XRENDER_COMPOSITING
 #include <xcb/xfixes.h>
@@ -423,6 +412,7 @@ class ScreenPaintData::Private
 public:
     QMatrix4x4 projectionMatrix;
     QRect outputGeometry;
+    qreal screenScale;
 };
 
 ScreenPaintData::ScreenPaintData()
@@ -431,12 +421,13 @@ ScreenPaintData::ScreenPaintData()
 {
 }
 
-ScreenPaintData::ScreenPaintData(const QMatrix4x4 &projectionMatrix, const QRect &outputGeometry)
+ScreenPaintData::ScreenPaintData(const QMatrix4x4 &projectionMatrix, const QRect &outputGeometry, const qreal screenScale)
     : PaintData()
     , d(new Private())
 {
     d->projectionMatrix = projectionMatrix;
     d->outputGeometry = outputGeometry;
+    d->screenScale = screenScale;
 }
 
 ScreenPaintData::~ScreenPaintData() = default;
@@ -524,6 +515,11 @@ QMatrix4x4 ScreenPaintData::projectionMatrix() const
 QRect ScreenPaintData::outputGeometry() const
 {
     return d->outputGeometry;
+}
+
+qreal ScreenPaintData::screenScale() const
+{
+    return d->screenScale;
 }
 
 //****************************************
@@ -932,7 +928,8 @@ bool WindowQuad::smoothNeeded() const
 WindowQuadList WindowQuadList::splitAtX(double x) const
 {
     WindowQuadList ret;
-    foreach (const WindowQuad & quad, *this) {
+    ret.reserve(count());
+    for (const WindowQuad & quad : *this) {
 #if !defined(QT_NO_DEBUG)
         if (quad.isTransformed())
             qFatal("Splitting quads is allowed only in pre-paint calls!");
@@ -964,7 +961,8 @@ WindowQuadList WindowQuadList::splitAtX(double x) const
 WindowQuadList WindowQuadList::splitAtY(double y) const
 {
     WindowQuadList ret;
-    foreach (const WindowQuad & quad, *this) {
+    ret.reserve(count());
+    for (const WindowQuad & quad : *this) {
 #if !defined(QT_NO_DEBUG)
         if (quad.isTransformed())
             qFatal("Splitting quads is allowed only in pre-paint calls!");
@@ -1017,7 +1015,7 @@ WindowQuadList WindowQuadList::makeGrid(int maxQuadSize) const
 
     WindowQuadList ret;
 
-    foreach (const WindowQuad &quad, *this) {
+    for (const WindowQuad &quad : *this) {
         const double quadLeft   = quad.left();
         const double quadRight  = quad.right();
         const double quadTop    = quad.top();
@@ -1061,7 +1059,7 @@ WindowQuadList WindowQuadList::makeRegularGrid(int xSubdivisions, int ySubdivisi
     double top    = first().top();
     double bottom = first().bottom();
 
-    foreach (const WindowQuad &quad, *this) {
+    for (const WindowQuad &quad : *this) {
 #if !defined(QT_NO_DEBUG)
         if (quad.isTransformed())
             qFatal("Splitting quads is allowed only in pre-paint calls!");
@@ -1077,7 +1075,7 @@ WindowQuadList WindowQuadList::makeRegularGrid(int xSubdivisions, int ySubdivisi
 
     WindowQuadList ret;
 
-    foreach (const WindowQuad &quad, *this) {
+    for (const WindowQuad &quad : *this) {
         const double quadLeft   = quad.left();
         const double quadRight  = quad.right();
         const double quadTop    = quad.top();
@@ -1134,8 +1132,7 @@ void WindowQuadList::makeInterleavedArrays(unsigned int type, GLVertex2D *vertic
     case GL_QUADS:
 #if defined(__SSE2__)
         if (!(intptr_t(vertex) & 0xf)) {
-            for (int i = 0; i < count(); i++) {
-                const WindowQuad &quad = at(i);
+            for (const WindowQuad &quad : *this) {
                 alignas(16) GLVertex2D v[4];
 
                 for (int j = 0; j < 4; j++) {
@@ -1158,9 +1155,7 @@ void WindowQuadList::makeInterleavedArrays(unsigned int type, GLVertex2D *vertic
         } else
 #endif // __SSE2__
         {
-            for (int i = 0; i < count(); i++) {
-                const WindowQuad &quad = at(i);
-
+            for (const WindowQuad &quad : *this) {
                 for (int j = 0; j < 4; j++) {
                     const WindowVertex &wv = quad[j];
 
@@ -1177,8 +1172,7 @@ void WindowQuadList::makeInterleavedArrays(unsigned int type, GLVertex2D *vertic
     case GL_TRIANGLES:
 #if defined(__SSE2__)
         if (!(intptr_t(vertex) & 0xf)) {
-            for (int i = 0; i < count(); i++) {
-                const WindowQuad &quad = at(i);
+            for (const WindowQuad &quad : *this) {
                 alignas(16) GLVertex2D v[4];
 
                 for (int j = 0; j < 4; j++) {
@@ -1212,8 +1206,7 @@ void WindowQuadList::makeInterleavedArrays(unsigned int type, GLVertex2D *vertic
         } else
 #endif // __SSE2__
         {
-            for (int i = 0; i < count(); i++) {
-                const WindowQuad &quad = at(i);
+            for (const WindowQuad &quad : *this) {
                 GLVertex2D v[4]; // Four unique vertices / quad
 
                 for (int j = 0; j < 4; j++) {
@@ -1252,9 +1245,7 @@ void WindowQuadList::makeArrays(float **vertices, float **texcoords, const QSize
      // Note: The positions in a WindowQuad are stored in clockwise order
     const int index[] = { 1, 0, 3, 3, 2, 1 };
 
-    for (int i = 0; i < count(); i++) {
-        const WindowQuad &quad = at(i);
-
+    for (const WindowQuad &quad : *this) {
         for (int j = 0; j < 6; j++) {
             const WindowVertex &wv = quad[index[j]];
 
@@ -1284,7 +1275,7 @@ WindowQuadList WindowQuadList::select(WindowQuadType type) const
 
 WindowQuadList WindowQuadList::filterOut(WindowQuadType type) const
 {
-    foreach (const WindowQuad & q, *this) {
+    for (const WindowQuad & q : *this) {
         if (q.type() == type) { // something to filter out, make a copy and filter
             WindowQuadList ret;
             foreach (const WindowQuad & q, *this) {
@@ -1299,18 +1290,12 @@ WindowQuadList WindowQuadList::filterOut(WindowQuadType type) const
 
 bool WindowQuadList::smoothNeeded() const
 {
-    foreach (const WindowQuad & q, *this)
-    if (q.smoothNeeded())
-        return true;
-    return false;
+    return std::any_of(constBegin(), constEnd(), [] (const WindowQuad & q) { return q.smoothNeeded(); });
 }
 
 bool WindowQuadList::isTransformed() const
 {
-    foreach (const WindowQuad & q, *this)
-    if (q.isTransformed())
-        return true;
-    return false;
+    return std::any_of(constBegin(), constEnd(), [] (const WindowQuad & q) { return q.isTransformed(); });
 }
 
 /***************************************************************
@@ -1361,9 +1346,10 @@ QRegion PaintClipper::paintArea()
 {
     Q_ASSERT(areas != nullptr);   // can be called only with clip() == true
     const QSize &s = effects->virtualScreenSize();
-    QRegion ret = QRegion(0, 0, s.width(), s.height());
-    foreach (const QRegion & r, *areas)
-    ret &= r;
+    QRegion ret(0, 0, s.width(), s.height());
+    for (const QRegion & r : qAsConst(*areas)) {
+        ret &= r;
+    }
     return ret;
 }
 

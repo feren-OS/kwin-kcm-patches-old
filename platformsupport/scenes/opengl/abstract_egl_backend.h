@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_ABSTRACT_EGL_BACKEND_H
 #define KWIN_ABSTRACT_EGL_BACKEND_H
 #include "backend.h"
@@ -28,18 +17,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 class QOpenGLFramebufferObject;
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class BufferInterface;
-}
 }
 
 namespace KWin
 {
 
 class EglDmabuf;
+class AbstractOutput;
 
 class KWIN_EXPORT AbstractEglBackend : public QObject, public OpenGLBackend
 {
@@ -62,6 +49,8 @@ public:
         return m_config;
     }
 
+    QSharedPointer<GLTexture> textureForOutput(AbstractOutput *output) const override;
+
 protected:
     AbstractEglBackend();
     void setEglDisplay(const EGLDisplay &display);
@@ -80,7 +69,7 @@ protected:
     bool createContext();
 
 private:
-    void unbindWaylandDisplay();
+    void teardown();
 
     EGLDisplay m_display = EGL_NO_DISPLAY;
     EGLSurface m_surface = EGL_NO_SURFACE;
@@ -111,11 +100,13 @@ protected:
     }
 
 private:
-    bool loadShmTexture(const QPointer<KWayland::Server::BufferInterface> &buffer);
-    bool loadEglTexture(const QPointer<KWayland::Server::BufferInterface> &buffer);
-    bool loadDmabufTexture(const QPointer< KWayland::Server::BufferInterface > &buffer);
+    void createTextureSubImage(const QImage &image, const QRegion &damage);
+    bool createTextureImage(const QImage &image);
+    bool loadShmTexture(const QPointer<KWaylandServer::BufferInterface> &buffer);
+    bool loadEglTexture(const QPointer<KWaylandServer::BufferInterface> &buffer);
+    bool loadDmabufTexture(const QPointer< KWaylandServer::BufferInterface > &buffer);
     bool loadInternalImageObject(WindowPixmap *pixmap);
-    EGLImageKHR attach(const QPointer<KWayland::Server::BufferInterface> &buffer);
+    EGLImageKHR attach(const QPointer<KWaylandServer::BufferInterface> &buffer);
     bool updateFromFBO(const QSharedPointer<QOpenGLFramebufferObject> &fbo);
     bool updateFromInternalImageObject(WindowPixmap *pixmap);
     SceneOpenGLTexture *q;

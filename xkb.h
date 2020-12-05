@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013, 2016, 2017 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013, 2016, 2017 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_XKB_H
 #define KWIN_XKB_H
 #include "input.h"
@@ -38,12 +27,9 @@ typedef uint32_t xkb_led_index_t;
 typedef uint32_t xkb_keysym_t;
 typedef uint32_t xkb_layout_index_t;
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
     class SeatInterface;
-}
 }
 
 namespace KWin
@@ -112,7 +98,7 @@ public:
      */
     void forwardModifiers();
 
-    void setSeat(KWayland::Server::SeatInterface *seat);
+    void setSeat(KWaylandServer::SeatInterface *seat);
 
 Q_SIGNALS:
     void ledsChanged(const LEDs &leds);
@@ -162,7 +148,7 @@ private:
     };
     Ownership m_ownership = Ownership::Server;
 
-    QPointer<KWayland::Server::SeatInterface> m_seat;
+    QPointer<KWaylandServer::SeatInterface> m_seat;
 };
 
 inline

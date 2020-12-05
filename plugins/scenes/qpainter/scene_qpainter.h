@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_SCENE_QPAINTER_H
 #define KWIN_SCENE_QPAINTER_H
 
@@ -36,8 +25,8 @@ public:
     ~SceneQPainter() override;
     bool usesOverlayWindow() const override;
     OverlayWindow* overlayWindow() const override;
-    qint64 paint(QRegion damage, QList<Toplevel *> windows) override;
-    void paintGenericScreen(int mask, ScreenPaintData data) override;
+    qint64 paint(const QRegion &damage, const QList<Toplevel *> &windows) override;
+    void paintGenericScreen(int mask, const ScreenPaintData &data) override;
     CompositingType compositingType() const override;
     bool initFailed() const override;
     EffectFrame *createEffectFrame(EffectFrameImpl *frame) override;
@@ -59,9 +48,9 @@ public:
     static SceneQPainter *createScene(QObject *parent);
 
 protected:
-    void paintBackground(QRegion region) override;
+    void paintBackground(const QRegion &region) override;
     Scene::Window *createWindow(Toplevel *toplevel) override;
-    void paintCursor() override;
+    void paintCursor(const QRegion &region) override;
     void paintEffectQuickView(EffectQuickView *w) override;
 
 private:
@@ -71,36 +60,39 @@ private:
     class Window;
 };
 
-class SceneQPainter::Window : public Scene::Window
-{
-public:
-    Window(SceneQPainter *scene, Toplevel *c);
-    ~Window() override;
-    void performPaint(int mask, QRegion region, WindowPaintData data) override;
-protected:
-    WindowPixmap *createWindowPixmap() override;
-private:
-    void renderShadow(QPainter *painter);
-    void renderWindowDecorations(QPainter *painter);
-    SceneQPainter *m_scene;
-};
-
 class QPainterWindowPixmap : public WindowPixmap
 {
 public:
     explicit QPainterWindowPixmap(Scene::Window *window);
     ~QPainterWindowPixmap() override;
     void create() override;
+    void update() override;
     bool isValid() const override;
 
-    void updateBuffer() override;
     const QImage &image();
 
 protected:
-    WindowPixmap *createChild(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface) override;
+    WindowPixmap *createChild(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface) override;
 private:
-    explicit QPainterWindowPixmap(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface, WindowPixmap *parent);
+    explicit QPainterWindowPixmap(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface, WindowPixmap *parent);
     QImage m_image;
+};
+
+class SceneQPainter::Window : public Scene::Window
+{
+    Q_OBJECT
+
+public:
+    Window(SceneQPainter *scene, Toplevel *c);
+    ~Window() override;
+    void performPaint(int mask, const QRegion &region, const WindowPaintData &data) override;
+protected:
+    WindowPixmap *createWindowPixmap() override;
+private:
+    void renderWindowPixmap(QPainter *painter, QPainterWindowPixmap *windowPixmap);
+    void renderShadow(QPainter *painter);
+    void renderWindowDecorations(QPainter *painter);
+    SceneQPainter *m_scene;
 };
 
 class QPainterEffectFrame : public Scene::EffectFrame
@@ -114,7 +106,7 @@ public:
     void freeIconFrame() override {}
     void freeTextFrame() override {}
     void freeSelection() override {}
-    void render(QRegion region, double opacity, double frameOpacity) override;
+    void render(const QRegion &region, double opacity, double frameOpacity) override;
 private:
     SceneQPainter *m_scene;
 };

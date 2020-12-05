@@ -1,27 +1,15 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "screens.h"
 #include <abstract_client.h>
 #include <x11client.h>
 #include "cursor.h"
-#include "orientation_sensor.h"
 #include "utils.h"
 #include "settings.h"
 #include <workspace.h>
@@ -55,21 +43,8 @@ Screens::Screens(QObject *parent)
     , m_current(0)
     , m_currentFollowsMouse(false)
     , m_changedTimer(new QTimer(this))
-    , m_orientationSensor(new OrientationSensor(this))
     , m_maxScale(1.0)
 {
-    connect(this, &Screens::changed, this,
-        [this] {
-            int internalIndex = -1;
-            for (int i = 0; i < m_count; i++) {
-                if (isInternal(i)) {
-                    internalIndex = i;
-                    break;
-                }
-            }
-            m_orientationSensor->setEnabled(internalIndex != -1 && supportsTransformations(internalIndex));
-        }
-    );
 }
 
 Screens::~Screens()
@@ -190,7 +165,7 @@ void Screens::setCurrentFollowsMouse(bool follows)
 int Screens::current() const
 {
     if (m_currentFollowsMouse) {
-        return number(Cursor::pos());
+        return number(Cursors::self()->mouse()->pos());
     }
     AbstractClient *client = Workspace::self()->activeClient();
     if (client && !client->isOnScreen(m_current)) {
@@ -241,9 +216,16 @@ Qt::ScreenOrientation Screens::orientation(int screen) const
 void Screens::setConfig(KSharedConfig::Ptr config)
 {
     m_config = config;
-    if (m_orientationSensor) {
-        m_orientationSensor->setConfig(config);
-    }
+}
+
+int Screens::physicalDpiX(int screen) const
+{
+    return size(screen).width() / physicalSize(screen).width() * qreal(25.4);
+}
+
+int Screens::physicalDpiY(int screen) const
+{
+    return size(screen).height() / physicalSize(screen).height() * qreal(25.4);
 }
 
 } // namespace

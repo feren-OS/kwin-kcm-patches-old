@@ -1,23 +1,11 @@
 /*
- * windows.h
- *
- * Copyright (c) 1997 Patrick Dowler dowler@morgul.fsh.uvic.ca
- * Copyright (c) 2001 Waldo Bastian bastian@kde.org
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+    windows.h
+
+    SPDX-FileCopyrightText: 1997 Patrick Dowler <dowler@morgul.fsh.uvic.ca>
+    SPDX-FileCopyrightText: 2001 Waldo Bastian <bastian@kde.org>
+
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KKWMWINDOWS_H
 #define KKWMWINDOWS_H
@@ -41,6 +29,8 @@ class QSpinBox;
 
 class KColorButton;
 
+class KWinOptionsSettings;
+class KWinOptionsKDEGlobalsSettings;
 
 class KWinFocusConfigForm : public QWidget, public Ui::KWinFocusConfigForm
 {
@@ -70,119 +60,67 @@ class KFocusConfig : public KCModule
 {
     Q_OBJECT
 public:
-    KFocusConfig(bool _standAlone, KConfig *_config, QWidget *parent);
-    ~KFocusConfig() override;
+    KFocusConfig(bool _standAlone, KWinOptionsSettings *settings, QWidget *parent);
 
     void load() override;
     void save() override;
     void defaults() override;
 
+Q_SIGNALS:
+    void unmanagedWidgetDefaulted(bool defaulted);
+    void unmanagedWidgetStateChanged(bool changed);
+
 protected:
+    void initialize(KWinOptionsSettings *settings);
     void showEvent(QShowEvent *ev) override;
 
 private Q_SLOTS:
-    void setDelayFocusEnabled();
     void focusPolicyChanged();
-    void autoRaiseOnTog(bool);//CT 23Oct1998
-    void delayFocusOnTog(bool);
-    void updateActiveMouseScreen();
     void updateMultiScreen();
-    void changed() {
-        emit KCModule::changed(true);
-    }
-
 
 private:
 
-    int getFocus(void);
-    int getAutoRaiseInterval(void);
-    int getDelayFocusInterval(void);
-
-    void setFocus(int);
-    void setAutoRaiseInterval(int);
-    void setAutoRaise(bool);
-    void setDelayFocusInterval(int);
-    void setClickRaise(bool);
-    void setSeparateScreenFocus(bool);
-    void setActiveMouseScreen(bool);
-
-    void setFocusStealing(int);
-
-    KConfig *config;
     bool     standAlone;
 
     KWinFocusConfigForm *m_ui;
+    KWinOptionsSettings *m_settings;
 };
 
 class KMovingConfig : public KCModule
 {
     Q_OBJECT
 public:
-    KMovingConfig(bool _standAlone, KConfig *config, QWidget *parent);
-    ~KMovingConfig() override;
+    KMovingConfig(bool _standAlone, KWinOptionsSettings *settings, QWidget *parent);
 
-    void load() override;
     void save() override;
-    void defaults() override;
 
 protected:
+    void initialize(KWinOptionsSettings *settings);
     void showEvent(QShowEvent *ev) override;
 
-private Q_SLOTS:
-    void changed() {
-        emit KCModule::changed(true);
-    }
-
 private:
-    bool getGeometryTip(void);   //KS
-
-    void setGeometryTip(bool); //KS
-
-    KConfig *config;
+    KWinOptionsSettings *m_settings;
     bool     standAlone;
     KWinMovingConfigForm *m_ui;
-
-    int getBorderSnapZone();
-    void setBorderSnapZone(int);
-    int getWindowSnapZone();
-    void setWindowSnapZone(int);
-    int getCenterSnapZone();
-    void setCenterSnapZone(int);
-
 };
 
 class KAdvancedConfig : public KCModule
 {
     Q_OBJECT
 public:
-    KAdvancedConfig(bool _standAlone, KConfig *config, QWidget *parent);
-    ~KAdvancedConfig() override;
+    KAdvancedConfig(bool _standAlone, KWinOptionsSettings *settings, KWinOptionsKDEGlobalsSettings *globalSettings, QWidget *parent);
 
-    void load() override;
     void save() override;
-    void defaults() override;
 
 protected:
+    void initialize(KWinOptionsSettings *settings, KWinOptionsKDEGlobalsSettings *globalSettings);
     void showEvent(QShowEvent *ev) override;
-
-private Q_SLOTS:
-    void shadeHoverChanged(bool);
-
-    void changed() {
-        emit KCModule::changed(true);
-    }
 
 private:
 
-    int getShadeHoverInterval(void);
-    void setShadeHover(bool);
-    void setShadeHoverInterval(int);
-
-    KConfig *config;
     bool     standAlone;
     KWinAdvancedConfigForm *m_ui;
-
-    void setHideUtilityWindowsForInactive(bool);
+    KWinOptionsSettings *m_settings;
 };
 
 #endif // KKWMWINDOWS_H

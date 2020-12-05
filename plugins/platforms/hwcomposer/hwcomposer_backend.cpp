@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-3.0-or-later
+*/
 #include "egl_hwcomposer_backend.h"
 #include "hwcomposer_backend.h"
 #include "logging.h"
@@ -26,7 +15,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "main.h"
 #include "wayland_server.h"
 // KWayland
-#include <KWayland/Server/output_interface.h>
+#include <KWaylandServer/output_interface.h>
 // KDE
 #include <KConfigGroup>
 // Qt
@@ -40,7 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // based on test_hwcomposer.c from libhybris project (Apache 2 licensed)
 
-using namespace KWayland::Server;
+using namespace KWaylandServer;
 
 namespace KWin
 {
@@ -226,7 +215,7 @@ void HwcomposerBackend::init()
     }
 
     if (m_lights) {
-        using namespace KWayland::Server;
+        using namespace KWaylandServer;
 
         auto updateDpms = [this] {
             if (!m_output || !m_output->waylandOutput()) {
@@ -236,7 +225,7 @@ void HwcomposerBackend::init()
         connect(this, &HwcomposerBackend::outputBlankChanged, this, updateDpms);
 
         connect(m_output.data(), &HwcomposerOutput::dpmsModeRequested, this,
-            [this] (KWayland::Server::OutputInterface::DpmsMode mode) {
+            [this] (KWaylandServer::OutputInterface::DpmsMode mode) {
                 if (mode == OutputInterface::DpmsMode::On) {
                     if (m_outputBlank) {
                         toggleBlankOutput();
@@ -541,7 +530,7 @@ bool HwcomposerOutput::isValid() const
     return isEnabled();
 }
 
-void HwcomposerOutput::updateDpms(KWayland::Server::OutputInterface::DpmsMode mode)
+void HwcomposerOutput::updateDpms(KWaylandServer::OutputInterface::DpmsMode mode)
 {
     emit dpmsModeRequested(mode);
 }

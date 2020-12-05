@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "activities.h"
 // KWin
 #include "x11client.h"
@@ -73,6 +62,8 @@ void Activities::slotCurrentChanged(const QString &newActivity)
 void Activities::slotRemoved(const QString &activity)
 {
     foreach (X11Client *client, Workspace::self()->clientList()) {
+        if (client->isDesktop())
+            continue;
         client->setOnActivity(activity, false);
     }
     //toss out any session data for it
@@ -167,6 +158,8 @@ void Activities::reallyStop(const QString &id)
     const QList<X11Client *> &clients = ws->clientList();
     for (auto it = clients.constBegin(); it != clients.constEnd(); ++it) {
         const X11Client *c = (*it);
+        if (c->isDesktop())
+            continue;
         const QByteArray sessionId = c->sessionId();
         if (sessionId.isEmpty()) {
             continue; //TODO support old wm_command apps too?

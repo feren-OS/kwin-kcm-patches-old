@@ -43,7 +43,7 @@ target_link_libraries(testVirtualDesktops
     KF5::ConfigCore
     KF5::GlobalAccel
     KF5::I18n
-    KF5::WaylandServer
+    Plasma::KWaylandServer
     KF5::WindowSystem
 )
 add_test(NAME kwin-testVirtualDesktops COMMAND testVirtualDesktops)
@@ -164,10 +164,10 @@ ecm_mark_as_test(testBuiltInEffectLoader)
 ########################################################
 # Test ScriptedEffectLoader
 ########################################################
-include_directories(${KWIN_SOURCE_DIR})
+include_directories(${KWin_SOURCE_DIR})
 set(testScriptedEffectLoader_SRCS
     ../effectloader.cpp
-    ../orientation_sensor.cpp
+    ../cursor.cpp
     ../screens.cpp
     ../scripting/scriptedeffect.cpp
     ../scripting/scripting_logging.cpp
@@ -179,7 +179,6 @@ set(testScriptedEffectLoader_SRCS
     test_scripted_effectloader.cpp
 )
 kconfig_add_kcfg_files(testScriptedEffectLoader_SRCS ../settings.kcfgc)
-qt5_add_dbus_adaptor(testScriptedEffectLoader_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../org.kde.kwin.OrientationSensor.xml ${CMAKE_CURRENT_SOURCE_DIR}/../orientation_sensor.h KWin::OrientationSensor)
 add_executable(testScriptedEffectLoader ${testScriptedEffectLoader_SRCS})
 
 target_link_libraries(testScriptedEffectLoader
@@ -245,8 +244,8 @@ target_link_libraries(effectversionplugin kwineffects)
 # Test Screens
 ########################################################
 set(testScreens_SRCS
-    ../orientation_sensor.cpp
     ../screens.cpp
+    ../cursor.cpp
     ../x11eventfilter.cpp
     mock_abstract_client.cpp
     mock_screens.cpp
@@ -255,7 +254,6 @@ set(testScreens_SRCS
     test_screens.cpp
 )
 kconfig_add_kcfg_files(testScreens_SRCS ../settings.kcfgc)
-qt5_add_dbus_adaptor(testScreens_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../org.kde.kwin.OrientationSensor.xml ${CMAKE_CURRENT_SOURCE_DIR}/../orientation_sensor.h KWin::OrientationSensor)
 
 add_executable(testScreens ${testScreens_SRCS})
 target_include_directories(testScreens BEFORE PRIVATE ./)
@@ -271,6 +269,8 @@ target_link_libraries(testScreens
     KF5::I18n
     KF5::Notifications
     KF5::WindowSystem
+
+    XCB::XCB #for xcbutils.h
 )
 
 add_test(NAME kwin_testScreens COMMAND testScreens)
@@ -282,11 +282,11 @@ ecm_mark_as_test(testScreens)
 set(testScreenEdges_SRCS
     ../atoms.cpp
     ../gestures.cpp
-    ../orientation_sensor.cpp
     ../plugins/platforms/x11/standalone/edge.cpp
     ../screenedge.cpp
     ../screens.cpp
     ../virtualdesktops.cpp
+    ../cursor.cpp
     ../xcbutils.cpp # init of extensions
     mock_abstract_client.cpp
     mock_screens.cpp
@@ -296,7 +296,6 @@ set(testScreenEdges_SRCS
 )
 kconfig_add_kcfg_files(testScreenEdges_SRCS ../settings.kcfgc)
 qt5_add_dbus_interface(testScreenEdges_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/kf5_org.freedesktop.ScreenSaver.xml screenlocker_interface )
-qt5_add_dbus_adaptor(testScreenEdges_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../org.kde.kwin.OrientationSensor.xml ${CMAKE_CURRENT_SOURCE_DIR}/../orientation_sensor.h KWin::OrientationSensor)
 
 add_executable(testScreenEdges ${testScreenEdges_SRCS})
 set_target_properties(testScreenEdges PROPERTIES COMPILE_DEFINITIONS "NO_NONE_WINDOW")
@@ -312,7 +311,7 @@ target_link_libraries(testScreenEdges
     KF5::GlobalAccel
     KF5::I18n
     KF5::Notifications
-    KF5::WaylandServer
+    Plasma::KWaylandServer
     KF5::WindowSystem
 
     XCB::COMPOSITE
@@ -403,7 +402,7 @@ target_link_libraries(testXkb
     Qt5::Widgets
 
     KF5::ConfigCore
-    KF5::WaylandServer
+    Plasma::KWaylandServer
     KF5::WindowSystem
 
     XKB::XKB

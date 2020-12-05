@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include <libinput.h>
 #include "mock_libinput.h"
 #include <config-kwin.h>
@@ -915,4 +904,22 @@ libinput_event_get_tablet_tool_event(struct libinput_event *event)
         return reinterpret_cast<libinput_event_tablet_tool *>(event);
     }
     return nullptr;
+}
+
+int
+libinput_device_tablet_pad_get_num_strips(struct libinput_device *device)
+{
+    return device->stripCount;
+}
+
+int
+libinput_device_tablet_pad_get_num_rings(struct libinput_device *device)
+{
+    return device->ringCount;
+}
+
+int
+libinput_device_tablet_pad_get_num_buttons(struct libinput_device *device)
+{
+    return device->buttonCount;
 }

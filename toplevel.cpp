@@ -1,24 +1,14 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "toplevel.h"
 
+#include "abstract_client.h"
 #ifdef KWIN_BUILD_ACTIVITIES
 #include "activities.h"
 #endif
@@ -31,7 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "workspace.h"
 #include "xcbutils.h"
 
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #include <QDebug>
 
@@ -59,6 +49,10 @@ Toplevel::Toplevel()
     connect(screens(), SIGNAL(changed()), SLOT(checkScreen()));
     connect(screens(), SIGNAL(countChanged(int,int)), SLOT(checkScreen()));
     setupCheckScreenConnection();
+    connect(this, &Toplevel::bufferGeometryChanged, this, &Toplevel::inputTransformationChanged);
+
+    // Only for compatibility reasons, drop in the next major release.
+    connect(this, &Toplevel::frameGeometryChanged, this, &Toplevel::geometryChanged);
 }
 
 Toplevel::~Toplevel()
@@ -67,12 +61,35 @@ Toplevel::~Toplevel()
     delete info;
 }
 
-QDebug& operator<<(QDebug& stream, const Toplevel* cl)
+QDebug operator<<(QDebug debug, const Toplevel *toplevel)
 {
-    if (cl == nullptr)
-        return stream << "\'NULL\'";
-    cl->debug(stream);
-    return stream;
+    QDebugStateSaver saver(debug);
+    debug.nospace();
+    if (toplevel) {
+        debug << toplevel->metaObject()->className() << '(' << static_cast<const void *>(toplevel);
+        debug << ", windowId=0x" << Qt::hex << toplevel->windowId() << Qt::dec;
+        if (const KWaylandServer::SurfaceInterface *surface = toplevel->surface()) {
+            debug << ", surface=" << surface;
+        }
+        const AbstractClient *client = qobject_cast<const AbstractClient *>(toplevel);
+        if (client) {
+            if (!client->isPopupWindow()) {
+                debug << ", caption=" << client->caption();
+            }
+            if (client->transientFor()) {
+                debug << ", transientFor=" << client->transientFor();
+            }
+        }
+        if (debug.verbosity() > 2) {
+            debug << ", frameGeometry=" << toplevel->frameGeometry();
+            debug << ", resourceName=" << toplevel->resourceName();
+            debug << ", resourceClass=" << toplevel->resourceClass();
+        }
+        debug << ')';
+    } else {
+        debug << "Toplevel(0x0)";
+    }
+    return debug;
 }
 
 void Toplevel::detectShape(xcb_window_t id)
@@ -89,6 +106,7 @@ void Toplevel::copyToDeleted(Toplevel* c)
 {
     m_internalId = c->internalId();
     m_frameGeometry = c->m_frameGeometry;
+    m_clientGeometry = c->m_clientGeometry;
     m_visual = c->m_visual;
     bit_depth = c->bit_depth;
     info = c->info;
@@ -212,6 +230,9 @@ xcb_window_t Toplevel::wmClientLeader() const
 
 void Toplevel::getResourceClass()
 {
+    if (!info) {
+        return;
+    }
     setResourceClass(QByteArray(info->windowClassName()).toLower(), QByteArray(info->windowClassClass()).toLower());
 }
 
@@ -229,6 +250,9 @@ bool Toplevel::resourceMatch(const Toplevel *c1, const Toplevel *c2)
 
 double Toplevel::opacity() const
 {
+    if (!info) {
+        return 1.0;
+    }
     if (info->opacity() == 0xffffffff)
         return 1.0;
     return info->opacity() * 1.0 / 0xffffffff;
@@ -236,6 +260,10 @@ double Toplevel::opacity() const
 
 void Toplevel::setOpacity(double new_opacity)
 {
+    if (!info) {
+        return;
+    }
+
     double old_opacity = opacity();
     new_opacity = qBound(0.0, new_opacity, 1.0);
     if (old_opacity == new_opacity)
@@ -477,6 +505,13 @@ void Toplevel::addWorkspaceRepaint(const QRect& r2)
     Compositor::self()->addRepaint(r2);
 }
 
+void Toplevel::addWorkspaceRepaint(const QRegion &region)
+{
+    if (compositing()) {
+        Compositor::self()->addRepaint(region);
+    }
+}
+
 void Toplevel::setReadyForPainting()
 {
     if (!ready_for_painting) {
@@ -517,15 +552,13 @@ void Toplevel::checkScreen()
 
 void Toplevel::setupCheckScreenConnection()
 {
-    connect(this, SIGNAL(geometryShapeChanged(KWin::Toplevel*,QRect)), SLOT(checkScreen()));
-    connect(this, SIGNAL(geometryChanged()), SLOT(checkScreen()));
+    connect(this, &Toplevel::frameGeometryChanged, this, &Toplevel::checkScreen);
     checkScreen();
 }
 
 void Toplevel::removeCheckScreenConnection()
 {
-    disconnect(this, SIGNAL(geometryShapeChanged(KWin::Toplevel*,QRect)), this, SLOT(checkScreen()));
-    disconnect(this, SIGNAL(geometryChanged()), this, SLOT(checkScreen()));
+    disconnect(this, &Toplevel::frameGeometryChanged, this, &Toplevel::checkScreen);
 }
 
 int Toplevel::screen() const
@@ -540,7 +573,7 @@ qreal Toplevel::screenScale() const
 
 qreal Toplevel::bufferScale() const
 {
-    return surface() ? surface()->scale() : 1;
+    return surface() ? surface()->bufferScale() : 1;
 }
 
 bool Toplevel::isOnScreen(int screen) const
@@ -557,6 +590,7 @@ void Toplevel::updateShadow()
 {
     QRect dirtyRect;  // old & new shadow region
     const QRect oldVisibleRect = visibleRect();
+    addWorkspaceRepaint(oldVisibleRect);
     if (shadow()) {
         dirtyRect = shadow()->shadowRegion().boundingRect();
         if (!effectWindow()->sceneWindow()->shadow()->updateShadow()) {
@@ -601,6 +635,10 @@ bool Toplevel::wantsShadowToBeRendered() const
 
 void Toplevel::getWmOpaqueRegion()
 {
+    if (!info) {
+        return;
+    }
+
     const auto rects = info->opaqueRegion();
     QRegion new_opaque_region;
     for (const auto &r : rects) {
@@ -643,6 +681,9 @@ void Toplevel::elevate(bool elevate)
 
 pid_t Toplevel::pid() const
 {
+    if (!info) {
+        return -1;
+    }
     return info->pid();
 }
 
@@ -681,12 +722,12 @@ void Toplevel::setSkipCloseAnimation(bool set)
     emit skipCloseAnimationChanged();
 }
 
-void Toplevel::setSurface(KWayland::Server::SurfaceInterface *surface)
+void Toplevel::setSurface(KWaylandServer::SurfaceInterface *surface)
 {
     if (m_surface == surface) {
         return;
     }
-    using namespace KWayland::Server;
+    using namespace KWaylandServer;
     if (m_surface) {
         disconnect(m_surface, &SurfaceInterface::damaged, this, &Toplevel::addDamage);
         disconnect(m_surface, &SurfaceInterface::sizeChanged, this, &Toplevel::discardWindowPixmap);
@@ -722,6 +763,9 @@ void Toplevel::addDamage(const QRegion &damage)
 
 QByteArray Toplevel::windowRole() const
 {
+    if (!info) {
+        return {};
+    }
     return QByteArray(info->windowRole());
 }
 

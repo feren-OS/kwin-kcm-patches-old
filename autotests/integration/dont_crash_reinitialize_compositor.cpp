@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "kwin_wayland_test.h"
 
@@ -27,7 +16,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "effects.h"
 #include "platform.h"
 #include "screens.h"
-#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
@@ -60,9 +48,8 @@ void DontCrashReinitializeCompositorTest::initTestCase()
 
     qRegisterMetaType<KWin::AbstractClient *>();
     qRegisterMetaType<KWin::Deleted *>();
-    qRegisterMetaType<KWin::XdgShellClient *>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
@@ -81,7 +68,7 @@ void DontCrashReinitializeCompositorTest::initTestCase()
     qputenv("KWIN_EFFECTS_FORCE_ANIMATIONS", QByteArrayLiteral("1"));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -134,7 +121,7 @@ void DontCrashReinitializeCompositorTest::testReinitializeCompositor()
     QVERIFY(!surface.isNull());
     QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QVERIFY(!shellSurface.isNull());
-    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
 
     // Make sure that only the test effect is loaded.
@@ -147,7 +134,7 @@ void DontCrashReinitializeCompositorTest::testReinitializeCompositor()
     QVERIFY(!effect->isActive());
 
     // Close the test client.
-    QSignalSpy windowClosedSpy(client, &XdgShellClient::windowClosed);
+    QSignalSpy windowClosedSpy(client, &AbstractClient::windowClosed);
     QVERIFY(windowClosedSpy.isValid());
     shellSurface.reset();
     surface.reset();

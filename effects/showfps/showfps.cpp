@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "showfps.h"
 
@@ -123,17 +112,14 @@ void ShowFpsEffect::reconfigure(ReconfigureFlags)
 
 void ShowFpsEffect::prePaintScreen(ScreenPrePaintData& data, int time)
 {
-    if (time == 0) {
-        // TODO optimized away
-    }
-    t.start();
-    frames[ frames_pos ] = t.minute() * 60000 + t.second() * 1000 + t.msec();
+    frames[ frames_pos ] = QDateTime::currentMSecsSinceEpoch();
     if (++frames_pos == MAX_FPS)
         frames_pos = 0;
     effects->prePaintScreen(data, time);
     data.paint += fps_rect;
 
     paint_size[ paints_pos ] = 0;
+    t.restart();
 }
 
 void ShowFpsEffect::paintWindow(EffectWindow* w, int mask, QRegion region, WindowPaintData& data)
@@ -154,11 +140,15 @@ void ShowFpsEffect::paintWindow(EffectWindow* w, int mask, QRegion region, Windo
 void ShowFpsEffect::paintScreen(int mask, const QRegion &region, ScreenPaintData& data)
 {
     effects->paintScreen(mask, region, data);
+    int lastFrame = frames_pos - 1;
+    if (lastFrame < 0)
+        lastFrame = MAX_FPS - 1;
+    const qint64 lastTimestamp = frames[lastFrame];
     int fps = 0;
     for (int i = 0;
             i < MAX_FPS;
             ++i)
-        if (abs(t.minute() * 60000 + t.second() * 1000 + t.msec() - frames[ i ]) < 1000)
+        if (abs(lastTimestamp - frames[ i ]) < 1000)
             ++fps; // count all frames in the last second
     if (fps > MAX_TIME)
         fps = MAX_TIME; // keep it the same height

@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "mock_libinput.h"
 #include "../../libinput/device.h"
 #include <config-kwin.h>
@@ -124,6 +113,7 @@ private Q_SLOTS:
     void testMiddleEmulation();
     void testNaturalScroll_data();
     void testNaturalScroll();
+    void testScrollFactor();
     void testScrollTwoFinger_data();
     void testScrollTwoFinger();
     void testScrollEdge_data();
@@ -1351,6 +1341,29 @@ void TestLibinputDevice::testNaturalScroll()
     QCOMPARE(d.property("naturalScroll").toBool(), expectedValue);
     QCOMPARE(naturalScrollChangedSpy.isEmpty(), initValue == expectedValue);
     QCOMPARE(dbusProperty<bool>(d.sysName(), "naturalScroll"), expectedValue);
+}
+
+void TestLibinputDevice::testScrollFactor()
+{
+    libinput_device device;
+
+    qreal initValue = 1.0;
+
+    Device d(&device);
+    QCOMPARE(d.scrollFactor(), initValue);
+    QCOMPARE(d.property("scrollFactor").toReal(), initValue);
+    QCOMPARE(dbusProperty<qreal>(d.sysName(), "scrollFactor"), initValue);
+
+    QSignalSpy scrollFactorChangedSpy(&d, &Device::scrollFactorChanged);
+    QVERIFY(scrollFactorChangedSpy.isValid());
+
+    qreal expectedValue = 2.0;
+
+    d.setScrollFactor(expectedValue);
+    QCOMPARE(d.scrollFactor(), expectedValue);
+    QCOMPARE(d.property("scrollFactor").toReal(), expectedValue);
+    QCOMPARE(scrollFactorChangedSpy.isEmpty(), false);
+    QCOMPARE(dbusProperty<qreal>(d.sysName(), "scrollFactor"), expectedValue);
 }
 
 void TestLibinputDevice::testScrollTwoFinger_data()

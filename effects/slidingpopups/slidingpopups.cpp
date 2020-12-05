@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2009 Marco Martin notmart@gmail.com
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2009 Marco Martin notmart @gmail.com
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "slidingpopups.h"
 #include "slidingpopupsconfig.h"
@@ -26,9 +15,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QFontMetrics>
 #include <QWindow>
 
-#include <KWayland/Server/surface_interface.h>
-#include <KWayland/Server/slide_interface.h>
-#include <KWayland/Server/display.h>
+#include <KWaylandServer/surface_interface.h>
+#include <KWaylandServer/slide_interface.h>
+#include <KWaylandServer/display.h>
 
 #include <KWindowEffects>
 
@@ -40,7 +29,7 @@ namespace KWin
 SlidingPopupsEffect::SlidingPopupsEffect()
 {
     initConfig<SlidingPopupsConfig>();
-    KWayland::Server::Display *display = effects->waylandDisplay();
+    KWaylandServer::Display *display = effects->waylandDisplay();
     if (display) {
         display->createSlideManager(this)->create();
     }
@@ -140,7 +129,7 @@ void SlidingPopupsEffect::paintWindow(EffectWindow *w, int mask, QRegion region,
         }
         data.translate(-interpolate(qMin(geo.width(), slideLength), 0.0, t));
         splitPoint = geo.width() - (geo.x() + geo.width() - screenRect.x() - animData.offset);
-        region = QRegion(geo.x() + splitPoint, geo.y(), geo.width() - splitPoint, geo.height());
+        region &= QRegion(geo.x() + splitPoint, geo.y(), geo.width() - splitPoint, geo.height());
         break;
     case Location::Top:
         if (slideLength < geo.height()) {
@@ -148,7 +137,7 @@ void SlidingPopupsEffect::paintWindow(EffectWindow *w, int mask, QRegion region,
         }
         data.translate(0.0, -interpolate(qMin(geo.height(), slideLength), 0.0, t));
         splitPoint = geo.height() - (geo.y() + geo.height() - screenRect.y() - animData.offset);
-        region = QRegion(geo.x(), geo.y() + splitPoint, geo.width(), geo.height() - splitPoint);
+        region &= QRegion(geo.x(), geo.y() + splitPoint, geo.width(), geo.height() - splitPoint);
         break;
     case Location::Right:
         if (slideLength < geo.width()) {
@@ -156,7 +145,7 @@ void SlidingPopupsEffect::paintWindow(EffectWindow *w, int mask, QRegion region,
         }
         data.translate(interpolate(qMin(geo.width(), slideLength), 0.0, t));
         splitPoint = screenRect.x() + screenRect.width() - geo.x() - animData.offset;
-        region = QRegion(geo.x(), geo.y(), splitPoint, geo.height());
+        region &= QRegion(geo.x(), geo.y(), splitPoint, geo.height());
         break;
     case Location::Bottom:
     default:
@@ -165,7 +154,7 @@ void SlidingPopupsEffect::paintWindow(EffectWindow *w, int mask, QRegion region,
         }
         data.translate(0.0, interpolate(qMin(geo.height(), slideLength), 0.0, t));
         splitPoint = screenRect.y() + screenRect.height() - geo.y() - animData.offset;
-        region = QRegion(geo.x(), geo.y(), geo.width(), splitPoint);
+        region &= QRegion(geo.x(), geo.y(), geo.width(), splitPoint);
     }
 
     effects->paintWindow(w, mask, region, data);
@@ -200,7 +189,7 @@ void SlidingPopupsEffect::slotWindowAdded(EffectWindow *w)
     //Wayland
     if (auto surf = w->surface()) {
         slotWaylandSlideOnShowChanged(w);
-        connect(surf, &KWayland::Server::SurfaceInterface::slideOnShowHideChanged, this, [this, surf] {
+        connect(surf, &KWaylandServer::SurfaceInterface::slideOnShowHideChanged, this, [this, surf] {
             slotWaylandSlideOnShowChanged(effects->findWindow(surf));
         });
     }
@@ -354,7 +343,7 @@ void SlidingPopupsEffect::slotWaylandSlideOnShowChanged(EffectWindow* w)
         return;
     }
 
-    KWayland::Server::SurfaceInterface *surf = w->surface();
+    KWaylandServer::SurfaceInterface *surf = w->surface();
     if (!surf) {
         return;
     }
@@ -365,16 +354,16 @@ void SlidingPopupsEffect::slotWaylandSlideOnShowChanged(EffectWindow* w)
         animData.offset = surf->slideOnShowHide()->offset();
 
         switch (surf->slideOnShowHide()->location()) {
-        case KWayland::Server::SlideInterface::Location::Top:
+        case KWaylandServer::SlideInterface::Location::Top:
             animData.location = Location::Top;
             break;
-        case KWayland::Server::SlideInterface::Location::Left:
+        case KWaylandServer::SlideInterface::Location::Left:
             animData.location = Location::Left;
             break;
-        case KWayland::Server::SlideInterface::Location::Right:
+        case KWaylandServer::SlideInterface::Location::Right:
             animData.location = Location::Right;
             break;
-        case KWayland::Server::SlideInterface::Location::Bottom:
+        case KWaylandServer::SlideInterface::Location::Bottom:
         default:
             animData.location = Location::Bottom;
             break;
@@ -464,7 +453,7 @@ void SlidingPopupsEffect::slideIn(EffectWindow *w)
     animation.kind = AnimationKind::In;
     animation.timeLine.setDirection(TimeLine::Forward);
     animation.timeLine.setDuration((*dataIt).slideInDuration);
-    animation.timeLine.setEasingCurve(QEasingCurve::OutQuad);
+    animation.timeLine.setEasingCurve(QEasingCurve::OutCubic);
 
     // If the opposite animation (Out) was active and it had shorter duration,
     // at this point, the timeline can end up in the "done" state. Thus, we have
@@ -503,8 +492,8 @@ void SlidingPopupsEffect::slideOut(EffectWindow *w)
     animation.kind = AnimationKind::Out;
     animation.timeLine.setDirection(TimeLine::Backward);
     animation.timeLine.setDuration((*dataIt).slideOutDuration);
-    // this is effectively InQuad because the direction is reversed
-    animation.timeLine.setEasingCurve(QEasingCurve::OutQuad);
+    // this is effectively InCubic because the direction is reversed
+    animation.timeLine.setEasingCurve(QEasingCurve::OutCubic);
 
     // If the opposite animation (In) was active and it had shorter duration,
     // at this point, the timeline can end up in the "done" state. Thus, we have

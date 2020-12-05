@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013, 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013, 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "keyboard_input.h"
 #include "input_event.h"
 #include "input_event_spy.h"
@@ -30,8 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "wayland_server.h"
 #include "workspace.h"
 // KWayland
-#include <KWayland/Server/datadevice_interface.h>
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/datadevice_interface.h>
+#include <KWaylandServer/seat_interface.h>
 //screenlocker
 #include <KScreenLocker/KsldApp>
 // Frameworks
@@ -111,7 +100,7 @@ void KeyboardInputRedirection::init()
     Q_ASSERT(!m_inited);
     m_inited = true;
     const auto config = kwinApp()->kxkbConfig();
-    m_xkb->setNumLockConfig(kwinApp()->inputConfig());
+    m_xkb->setNumLockConfig(InputConfig::self()->inputConfig());
     m_xkb->setConfig(config);
 
     m_input->installInputEventSpy(new KeyStateChangedSpy(m_input));

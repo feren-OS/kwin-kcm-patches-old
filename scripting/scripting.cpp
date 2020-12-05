@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2010 Rohan Prabhu <rohan@rohanprabhu.com>
-Copyright (C) 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2010 Rohan Prabhu <rohan@rohanprabhu.com>
+    SPDX-FileCopyrightText: 2011 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "scripting.h"
 // own
@@ -65,8 +54,8 @@ QScriptValue kwinScriptPrint(QScriptContext *context, QScriptEngine *engine)
             stream << " ";
         }
         QScriptValue argument = context->argument(i);
-        if (KWin::X11Client *client = qscriptvalue_cast<KWin::X11Client *>(argument)) {
-            client->print<QTextStream>(stream);
+        if (KWin::AbstractClient *client = qscriptvalue_cast<KWin::AbstractClient *>(argument)) {
+            stream << client;
         } else {
             stream << argument.toString();
         }
@@ -709,6 +698,7 @@ void KWin::Scripting::init()
     qmlRegisterType<KWin::ScriptingClientModel::SimpleClientModel>("org.kde.kwin", 2, 0, "ClientModel");
     qmlRegisterType<KWin::ScriptingClientModel::ClientModelByScreen>("org.kde.kwin", 2, 0, "ClientModelByScreen");
     qmlRegisterType<KWin::ScriptingClientModel::ClientModelByScreenAndDesktop>("org.kde.kwin", 2, 0, "ClientModelByScreenAndDesktop");
+    qmlRegisterType<KWin::ScriptingClientModel::ClientModelByScreenAndActivity>("org.kde.kwin", 2, 1, "ClientModelByScreenAndActivity");
     qmlRegisterType<KWin::ScriptingClientModel::ClientFilterModel>("org.kde.kwin", 2, 0, "ClientFilterModel");
     qmlRegisterType<KWin::AbstractClient>();
     qmlRegisterType<KWin::X11Client>();

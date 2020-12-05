@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 // SELI zmenit doc
 
@@ -93,7 +82,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "effects.h"
 #include "composite.h"
 #include "screenedge.h"
-#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "internal_client.h"
 
@@ -125,6 +113,7 @@ void Workspace::updateStackingOrder(bool propagate_new_clients)
     stacking_order = new_stacking_order;
     if (changed || propagate_new_clients) {
         propagateClients(propagate_new_clients);
+        markXStackingOrderAsDirty();
         emit stackingOrderChanged();
         if (m_compositor) {
             m_compositor->addRepaintFull();
@@ -206,13 +195,10 @@ void Workspace::propagateClients(bool propagate_new_clients)
     int pos = 0;
     xcb_window_t *cl(nullptr);
     if (propagate_new_clients) {
-        cl = new xcb_window_t[ manual_overlays.count() + desktops.count() + clients.count()];
+        cl = new xcb_window_t[ manual_overlays.count() + clients.count()];
         for (const auto win : manual_overlays) {
             cl[pos++] = win;
         }
-        // TODO this is still not completely in the map order
-        for (auto it = desktops.constBegin(); it != desktops.constEnd(); ++it)
-            cl[pos++] = (*it)->window();
         for (auto it = clients.constBegin(); it != clients.constEnd(); ++it)
             cl[pos++] = (*it)->window();
         rootInfo()->setClientList(cl, pos);
@@ -222,18 +208,16 @@ void Workspace::propagateClients(bool propagate_new_clients)
     cl = new xcb_window_t[ manual_overlays.count() + stacking_order.count()];
     pos = 0;
     for (auto it = stacking_order.constBegin(); it != stacking_order.constEnd(); ++it) {
-        if ((*it)->isClient())
-            cl[pos++] = (*it)->window();
+        X11Client *client = qobject_cast<X11Client *>(*it);
+        if (client) {
+            cl[pos++] = client->window();
+        }
     }
     for (const auto win : manual_overlays) {
         cl[pos++] = win;
     }
     rootInfo()->setClientListStacking(cl, pos);
     delete [] cl;
-
-    // Make the cached stacking order invalid here, in case we need the new stacking order before we get
-    // the matching event, due to X being asynchronous.
-    markXStackingOrderAsDirty();
 }
 
 /**
@@ -508,7 +492,7 @@ QList<Toplevel *> Workspace::constrainedStackingOrder()
     QList<Toplevel *> layer[ NumLayers ];
 
     // build the order from layers
-    QVector< QMap<Group*, Layer> > minimum_layer(screens()->count());
+    QVector< QMultiMap<Group*, Layer> > minimum_layer(screens()->count());
     for (auto it = unconstrained_stacking_order.constBegin(),
                                   end = unconstrained_stacking_order.constEnd(); it != end; ++it) {
         Layer l = (*it)->layer();
@@ -524,7 +508,7 @@ QList<Toplevel *> Workspace::constrainedStackingOrder()
                 l = ActiveLayer;
             *mLayer = l;
         } else if (c) {
-            minimum_layer[screen].insertMulti(c->group(), l);
+            minimum_layer[screen].insert(c->group(), l);
         }
         layer[ l ].append(*it);
     }
@@ -745,11 +729,11 @@ void Workspace::updateXStackingOrder()
     if (tree && !tree->isNull()) {
         xcb_window_t *windows = tree->children();
         const auto count = tree->data()->children_len;
-        int foundUnmanagedCount = unmanaged.count();
+        int foundUnmanagedCount = m_unmanaged.count();
         for (unsigned int i = 0;
                 i < count;
                 ++i) {
-            for (auto it = unmanaged.constBegin(); it != unmanaged.constEnd(); ++it) {
+            for (auto it = m_unmanaged.constBegin(); it != m_unmanaged.constEnd(); ++it) {
                 Unmanaged *u = *it;
                 if (u->window() == windows[i]) {
                     x_stacking.append(u);
@@ -849,14 +833,6 @@ void X11Client::restackWindow(xcb_window_t above, int detail, NET::RequestSource
 
     if (send_event)
         sendSyntheticConfigureNotify();
-}
-
-void X11Client::doSetKeepAbove()
-{
-}
-
-void X11Client::doSetKeepBelow()
-{
 }
 
 bool X11Client::belongsToDesktop() const

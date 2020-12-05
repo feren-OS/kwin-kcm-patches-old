@@ -1,25 +1,14 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2009 Lucas Murray <lmurray@undefinedfire.com>
-Copyright (C) 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2009 Lucas Murray <lmurray@undefinedfire.com>
+    SPDX-FileCopyrightText: 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWINEFFECTS_H
 #define KWINEFFECTS_H
@@ -65,11 +54,9 @@ class QAction;
  */
 Q_DECLARE_LOGGING_CATEGORY(KWINEFFECTS)
 
-namespace KWayland {
-    namespace Server {
-        class SurfaceInterface;
-        class Display;
-    }
+namespace KWaylandServer {
+    class SurfaceInterface;
+    class Display;
 }
 
 namespace KWin
@@ -188,7 +175,7 @@ X-KDE-Library=kwin4_effect_cooleffect
 
 #define KWIN_EFFECT_API_MAKE_VERSION( major, minor ) (( major ) << 8 | ( minor ))
 #define KWIN_EFFECT_API_VERSION_MAJOR 0
-#define KWIN_EFFECT_API_VERSION_MINOR 229
+#define KWIN_EFFECT_API_VERSION_MINOR 231
 #define KWIN_EFFECT_API_VERSION KWIN_EFFECT_API_MAKE_VERSION( \
         KWIN_EFFECT_API_VERSION_MAJOR, KWIN_EFFECT_API_VERSION_MINOR )
 
@@ -768,10 +755,10 @@ public:
 #define KWIN_EFFECT_FACTORY_ENABLED( factoryName, className, jsonFile, enabled ) \
     KWIN_EFFECT_FACTORY_SUPPORTED_ENABLED( factoryName, className, jsonFile, return true;, enabled )
 
-#define KWIN_EFFECT_FACTORY_SUPPORTED( factoryName, classname, jsonFile, supported ) \
+#define KWIN_EFFECT_FACTORY_SUPPORTED( factoryName, className, jsonFile, supported ) \
     KWIN_EFFECT_FACTORY_SUPPORTED_ENABLED( factoryName, className, jsonFile, supported, return true; )
 
-#define KWIN_EFFECT_FACTORY( factoryName, classname, jsonFile ) \
+#define KWIN_EFFECT_FACTORY( factoryName, className, jsonFile ) \
     KWIN_EFFECT_FACTORY_SUPPORTED_ENABLED( factoryName, className, jsonFile, return true;, return true; )
 
 
@@ -1084,7 +1071,7 @@ public:
     virtual WindowQuadType newWindowQuadType() = 0;
 
     Q_SCRIPTABLE virtual KWin::EffectWindow* findWindow(WId id) const = 0;
-    Q_SCRIPTABLE virtual KWin::EffectWindow* findWindow(KWayland::Server::SurfaceInterface *surf) const = 0;
+    Q_SCRIPTABLE virtual KWin::EffectWindow* findWindow(KWaylandServer::SurfaceInterface *surf) const = 0;
     /**
      * Finds the EffectWindow for the internal window @p w.
      * If there is no such window @c null is returned.
@@ -1257,7 +1244,7 @@ public:
      * on Wayland, on X11 it will be nullptr
      * @since 5.5
      */
-    virtual KWayland::Server::Display *waylandDisplay() const = 0;
+    virtual KWaylandServer::Display *waylandDisplay() const = 0;
 
     /**
      * Whether animations are supported by the Scene.
@@ -1519,6 +1506,13 @@ Q_SIGNALS:
      * @since 4.7
      */
     void windowGeometryShapeChanged(KWin::EffectWindow *w, const QRect &old);
+    /**
+     * This signal is emitted when the frame geometry of a window changed.
+     * @param window The window whose geometry changed
+     * @param oldGeometry The previous geometry
+     * @since 5.19
+     */
+    void windowFrameGeometryChanged(KWin::EffectWindow *window, const QRect &oldGeometry);
     /**
      * Signal emitted when the padding of a window changed. (eg. shadow size)
      * @param w The window whose geometry changed
@@ -2055,7 +2049,7 @@ class KWINEFFECTS_EXPORT EffectWindow : public QObject
      * Interface to the corresponding wayland surface.
      * relevant only in Wayland, on X11 it will be nullptr
      */
-    Q_PROPERTY(KWayland::Server::SurfaceInterface *surface READ surface)
+    Q_PROPERTY(KWaylandServer::SurfaceInterface *surface READ surface)
 
     /**
      * Whether the window is fullscreen.
@@ -2102,7 +2096,7 @@ class KWINEFFECTS_EXPORT EffectWindow : public QObject
      * @since 5.16
      */
     Q_PROPERTY(QWindow *internalWindow READ internalWindow CONSTANT)
-
+    
     /**
      * Whether this EffectWindow represents the outline.
      *
@@ -2117,7 +2111,7 @@ class KWINEFFECTS_EXPORT EffectWindow : public QObject
      *
      * @since 5.18
      */
-    Q_PROPERTY(bool outline READ isOutline CONSTANT)
+    Q_PROPERTY(pid_t pid READ pid CONSTANT)
 
 public:
     /**  Flags explaining why painting should be disabled  */
@@ -2368,6 +2362,7 @@ public:
 
     virtual bool isModal() const = 0;
     Q_SCRIPTABLE virtual KWin::EffectWindow* findModal() = 0;
+    Q_SCRIPTABLE virtual KWin::EffectWindow* transientFor() = 0;
     Q_SCRIPTABLE virtual QList<KWin::EffectWindow*> mainWindows() const = 0;
 
     /**
@@ -2402,7 +2397,7 @@ public:
     /**
      * @since 5.5
      */
-    virtual KWayland::Server::SurfaceInterface *surface() const = 0;
+    virtual KWaylandServer::SurfaceInterface *surface() const = 0;
 
     /**
      * @since 5.6
@@ -2579,7 +2574,7 @@ private:
 };
 
 class KWINEFFECTS_EXPORT WindowQuadList
-    : public QList< WindowQuad >
+    : public QVector<WindowQuad>
 {
 public:
     WindowQuadList splitAtX(double x) const;
@@ -2984,7 +2979,7 @@ class KWINEFFECTS_EXPORT ScreenPaintData : public PaintData
 {
 public:
     ScreenPaintData();
-    ScreenPaintData(const QMatrix4x4 &projectionMatrix, const QRect &outputGeometry = QRect());
+    ScreenPaintData(const QMatrix4x4 &projectionMatrix, const QRect &outputGeometry = QRect(), const qreal screenScale = 1.0);
     ScreenPaintData(const ScreenPaintData &other);
     ~ScreenPaintData() override;
     /**
@@ -3046,6 +3041,13 @@ public:
      * @since 5.9
      */
     QRect outputGeometry() const;
+
+    /**
+     * The scale factor for the output
+     *
+     * @since 5.19
+     */
+    qreal screenScale() const;
 private:
     class Private;
     QScopedPointer<Private> d;
@@ -3677,7 +3679,7 @@ public:
     /**
      * Sets new easing curve by providing its type.
      *
-     * @param type Type of the easing curve(e.g. QEasingCurve::InQuad, etc)
+     * @param type Type of the easing curve(e.g. QEasingCurve::InCubic, etc)
      * @see easingCurve
      * @since 5.14
      */

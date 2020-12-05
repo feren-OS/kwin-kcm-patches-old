@@ -1,24 +1,13 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2012 Martin Gräßlin <m.graesslin@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2012 Martin Gräßlin <m.graesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "options.h"
 #include "config-kwin.h"
@@ -106,6 +95,8 @@ Options::Options(QObject *parent)
     , m_focusStealingPreventionLevel(0)
     , m_killPingTimeout(0)
     , m_hideUtilityWindowsForInactive(false)
+    , m_xwaylandCrashPolicy(Options::defaultXwaylandCrashPolicy())
+    , m_xwaylandMaxCrashCount(Options::defaultXwaylandMaxCrashCount())
     , m_compositingMode(Options::defaultCompositingMode())
     , m_useCompositing(Options::defaultUseCompositing())
     , m_hiddenPreviews(Options::defaultHiddenPreviews())
@@ -180,6 +171,24 @@ void Options::setNextFocusPrefersMouse(bool nextFocusPrefersMouse)
     }
     m_nextFocusPrefersMouse = nextFocusPrefersMouse;
     emit nextFocusPrefersMouseChanged();
+}
+
+void Options::setXwaylandCrashPolicy(XwaylandCrashPolicy crashPolicy)
+{
+    if (m_xwaylandCrashPolicy == crashPolicy) {
+        return;
+    }
+    m_xwaylandCrashPolicy = crashPolicy;
+    emit xwaylandCrashPolicyChanged();
+}
+
+void Options::setXwaylandMaxCrashCount(int maxCrashCount)
+{
+    if (m_xwaylandMaxCrashCount == maxCrashCount) {
+        return;
+    }
+    m_xwaylandMaxCrashCount = maxCrashCount;
+    emit xwaylandMaxCrashCountChanged();
 }
 
 void Options::setClickRaise(bool clickRaise)
@@ -765,7 +774,7 @@ void Options::loadConfig()
     config = KConfigGroup(m_settings->config(), "MouseBindings");
     // TODO: add properties for missing options
     CmdTitlebarWheel = mouseWheelCommand(config.readEntry("CommandTitlebarWheel", "Nothing"));
-    CmdAllModKey = (config.readEntry("CommandAllKey", "Alt") == QStringLiteral("Meta")) ? Qt::Key_Meta : Qt::Key_Alt;
+    CmdAllModKey = (config.readEntry("CommandAllKey", "Meta") == QStringLiteral("Meta")) ? Qt::Key_Meta : Qt::Key_Alt;
     CmdAllWheel = mouseWheelCommand(config.readEntry("CommandAllWheel", "Nothing"));
     setCommandActiveTitlebar1(mouseCommand(config.readEntry("CommandActiveTitlebar1", "Raise"), true));
     setCommandActiveTitlebar2(mouseCommand(config.readEntry("CommandActiveTitlebar2", "Nothing"), true));
@@ -814,6 +823,8 @@ void Options::syncFromKcfgc()
     setSeparateScreenFocus(m_settings->separateScreenFocus());
     setRollOverDesktops(m_settings->rollOverDesktops());
     setFocusStealingPreventionLevel(m_settings->focusStealingPreventionLevel());
+    setXwaylandCrashPolicy(m_settings->xwaylandCrashPolicy());
+    setXwaylandMaxCrashCount(m_settings->xwaylandMaxCrashCount());
 
 #ifdef KWIN_BUILD_DECORATIONS
     setPlacement(m_settings->placement());
@@ -963,7 +974,7 @@ void Options::reloadCompositingSettings(bool force)
 // restricted should be true for operations that the user may not be able to repeat
 // if the window is moved out of the workspace (e.g. if the user moves a window
 // by the titlebar, and moves it too high beneath Kicker at the top edge, they
-// may not be able to move it back, unless they know about Alt+LMB)
+// may not be able to move it back, unless they know about Meta+LMB)
 Options::WindowOperation Options::windowOperation(const QString &name, bool restricted)
 {
     if (name == QStringLiteral("Move"))
@@ -1075,7 +1086,7 @@ double Options::animationTimeFactor() const
 Options::WindowOperation Options::operationMaxButtonClick(Qt::MouseButtons button) const
 {
     return button == Qt::RightButton ? opMaxButtonRightClick :
-           button == Qt::MidButton ?   opMaxButtonMiddleClick :
+           button == Qt::MiddleButton ?   opMaxButtonMiddleClick :
            opMaxButtonLeftClick;
 }
 

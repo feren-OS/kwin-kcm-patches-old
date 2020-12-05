@@ -1,28 +1,17 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "cursor.h"
 #include "decorations/decorationbridge.h"
 #include "decorations/settings.h"
 #include "platform.h"
-#include "xdgshellclient.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -33,8 +22,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/server_decoration.h>
 #include <KWayland/Client/xdgdecoration.h>
 #include <KWayland/Client/plasmashell.h>
-
-#include <KWayland/Server/xdgdecoration_interface.h>
 
 #include <KDecoration2/DecoratedClient>
 #include <KDecoration2/Decoration>
@@ -55,16 +42,17 @@ private Q_SLOTS:
 
     void testMaximizedPassedToDeco();
     void testInitiallyMaximized();
+    void testInitiallyMaximizedBorderless();
     void testBorderlessMaximizedWindow();
     void testBorderlessMaximizedWindowNoClientSideDecoration();
+    void testMaximizedGainFocusAndBeActivated();
 };
 
 void TestMaximized::initTestCase()
 {
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
@@ -72,7 +60,7 @@ void TestMaximized::initTestCase()
     kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -86,7 +74,7 @@ void TestMaximized::init()
                                          Test::AdditionalWaylandInterface::PlasmaShell));
 
     screens()->setCurrent(0);
-    KWin::Cursor::setPos(QPoint(1280, 512));
+    KWin::Cursors::self()->mouse()->setPos(QPoint(1280, 512));
 }
 
 void TestMaximized::cleanup()
@@ -131,10 +119,10 @@ void TestMaximized::testMaximizedPassedToDeco()
     // now maximize
     QSignalSpy bordersChangedSpy(decoration, &KDecoration2::Decoration::bordersChanged);
     QVERIFY(bordersChangedSpy.isValid());
-    QSignalSpy maximizedChangedSpy(decoration->client().data(), &KDecoration2::DecoratedClient::maximizedChanged);
+    QSignalSpy maximizedChangedSpy(decoration->client().toStrongRef().data(), &KDecoration2::DecoratedClient::maximizedChanged);
     QVERIFY(maximizedChangedSpy.isValid());
-    QSignalSpy geometryShapeChangedSpy(client, &AbstractClient::geometryShapeChanged);
-    QVERIFY(geometryShapeChangedSpy.isValid());
+    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
+    QVERIFY(frameGeometryChangedSpy.isValid());
 
     workspace()->slotWindowMaximize();
     QVERIFY(configureRequestedSpy.wait());
@@ -142,10 +130,10 @@ void TestMaximized::testMaximizedPassedToDeco()
     QCOMPARE(configureRequestedSpy.last().at(0).toSize(), QSize(1280, 1024 - decoration->borderTop()));
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), configureRequestedSpy.last().at(0).toSize(), Qt::red);
-    QVERIFY(geometryShapeChangedSpy.wait());
+    QVERIFY(frameGeometryChangedSpy.wait());
 
     // If no borders, there is only the initial geometry shape change, but none through border resizing.
-    QCOMPARE(geometryShapeChangedSpy.count(), hasBorders ? 2 : 1);
+    QCOMPARE(frameGeometryChangedSpy.count(), hasBorders ? 2 : 1);
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeFull);
     QCOMPARE(maximizedChangedSpy.count(), 1);
     QCOMPARE(maximizedChangedSpy.last().first().toBool(), true);
@@ -163,8 +151,8 @@ void TestMaximized::testMaximizedPassedToDeco()
 
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(100, 50), Qt::red);
-    QVERIFY(geometryShapeChangedSpy.wait());
-    QCOMPARE(geometryShapeChangedSpy.count(), hasBorders ? 4 : 2);
+    QVERIFY(frameGeometryChangedSpy.wait());
+    QCOMPARE(frameGeometryChangedSpy.count(), hasBorders ? 4 : 2);
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeRestore);
     QCOMPARE(maximizedChangedSpy.count(), 2);
     QCOMPARE(maximizedChangedSpy.last().first().toBool(), false);
@@ -202,7 +190,7 @@ void TestMaximized::testInitiallyMaximized()
 
     // Now let's render in an incorrect size.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
-    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QCOMPARE(client->frameGeometry(), QRect(0, 0, 100, 50));
     QEXPECT_FAIL("", "Should go out of maximzied", Continue);
@@ -213,6 +201,57 @@ void TestMaximized::testInitiallyMaximized()
     QVERIFY(Test::waitForWindowDestroyed(client));
 }
 
+void TestMaximized::testInitiallyMaximizedBorderless()
+{
+    // This test verifies that a window created as maximized, will be maximized and without Border with BorderlessMaximizedWindows
+
+    // adjust config
+    auto group = kwinApp()->config()->group("Windows");
+    group.writeEntry("BorderlessMaximizedWindows", true);
+    group.sync();
+    Workspace::self()->slotReconfigure();
+    QCOMPARE(options->borderlessMaximizedWindows(), true);
+
+    // Create the test client.
+    QScopedPointer<Surface> surface(Test::createSurface());
+    QScopedPointer<XdgShellSurface> shellSurface(
+        Test::createXdgShellStableSurface(surface.data(), surface.data(), Test::CreationSetup::CreateOnly));
+    QScopedPointer<XdgDecoration> decoration(
+        Test::xdgDecorationManager()->getToplevelDecoration(shellSurface.data()));
+
+    QSignalSpy configureRequestedSpy(shellSurface.data(), &XdgShellSurface::configureRequested);
+    QVERIFY(configureRequestedSpy.isValid());
+    shellSurface->setMaximized(true);
+    QSignalSpy decorationConfiguredSpy(decoration.data(), &XdgDecoration::modeChanged);
+    QVERIFY(decorationConfiguredSpy.isValid());
+    decoration->setMode(XdgDecoration::Mode::ServerSide);
+    surface->commit(Surface::CommitFlag::None);
+
+    // Wait for the initial configure event.
+    XdgShellSurface::States states;
+    QVERIFY(configureRequestedSpy.wait());
+    QCOMPARE(configureRequestedSpy.count(), 1);
+    QCOMPARE(configureRequestedSpy.last().at(0).toSize(), QSize(1280, 1024));
+    states = configureRequestedSpy.last().at(1).value<XdgShellSurface::States>();
+    QVERIFY(!states.testFlag(XdgShellSurface::State::Activated));
+    QVERIFY(states.testFlag(XdgShellSurface::State::Maximized));
+
+    shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(1280, 1024), Qt::blue);
+    QVERIFY(client);
+    QVERIFY(!client->isDecorated());
+    QVERIFY(client->isActive());
+    QVERIFY(client->isMaximizable());
+    QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeFull);
+    QCOMPARE(client->requestedMaximizeMode(), MaximizeMode::MaximizeFull);
+    QCOMPARE(client->frameGeometry(), QRect(0, 0, 1280, 1024));
+    QCOMPARE(decoration->mode(), XdgDecoration::Mode::ServerSide);
+
+    // Destroy the client.
+    shellSurface.reset();
+    surface.reset();
+    QVERIFY(Test::waitForWindowDestroyed(client));
+}
 void TestMaximized::testBorderlessMaximizedWindow()
 {
     // This test verifies that a maximized client looses it's server-side
@@ -249,7 +288,7 @@ void TestMaximized::testBorderlessMaximizedWindow()
 
     // Map the client.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
-    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(client->isActive());
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeRestore);
@@ -273,11 +312,11 @@ void TestMaximized::testBorderlessMaximizedWindow()
     QVERIFY(states.testFlag(XdgShellSurface::State::Activated));
     QVERIFY(states.testFlag(XdgShellSurface::State::Maximized));
 
-    QSignalSpy geometryChangedSpy(client, &AbstractClient::geometryChanged);
-    QVERIFY(geometryChangedSpy.isValid());
+    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
+    QVERIFY(frameGeometryChangedSpy.isValid());
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(1280, 1024), Qt::blue);
-    QVERIFY(geometryChangedSpy.wait());
+    QVERIFY(frameGeometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), QRect(0, 0, 1280, 1024));
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeFull);
     QCOMPARE(client->requestedMaximizeMode(), MaximizeMode::MaximizeFull);
@@ -294,7 +333,7 @@ void TestMaximized::testBorderlessMaximizedWindow()
 
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(100, 50), Qt::red);
-    QVERIFY(geometryChangedSpy.wait());
+    QVERIFY(frameGeometryChangedSpy.wait());
     QCOMPARE(client->frameGeometry(), maximizeRestoreGeometry);
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeRestore);
     QCOMPARE(client->requestedMaximizeMode(), MaximizeMode::MaximizeRestore);
@@ -309,6 +348,8 @@ void TestMaximized::testBorderlessMaximizedWindowNoClientSideDecoration()
 {
     // test case verifies that borderless maximized windows doesn't cause
     // clients to render client-side decorations instead (BUG 405385)
+
+    XdgShellSurface::States states;
 
     // adjust config
     auto group = kwinApp()->config()->group("Windows");
@@ -325,30 +366,33 @@ void TestMaximized::testBorderlessMaximizedWindowNoClientSideDecoration()
     QVERIFY(decorationConfiguredSpy.isValid());
 
     auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    QVERIFY(client->isDecorated());
+    QVERIFY(!client->noBorder());
 
-    QSignalSpy geometryChangedSpy(client, &XdgShellClient::geometryChanged);
-    QVERIFY(geometryChangedSpy.isValid());
-    QSignalSpy sizeChangeRequestedSpy(xdgShellSurface.data(), &XdgShellSurface::sizeChanged);
-    QVERIFY(sizeChangeRequestedSpy.isValid());
+    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
+    QVERIFY(frameGeometryChangedSpy.isValid());
     QSignalSpy configureRequestedSpy(xdgShellSurface.data(), &XdgShellSurface::configureRequested);
     QVERIFY(configureRequestedSpy.isValid());
 
-    QVERIFY(client->isDecorated());
-    QVERIFY(!client->noBorder());
-    configureRequestedSpy.wait();
+    // Wait for the compositor to send a configure event with the Activated state.
+    QVERIFY(configureRequestedSpy.wait());
+    QCOMPARE(configureRequestedSpy.count(), 1);
+    states = configureRequestedSpy.last().at(1).value<XdgShellSurface::States>();
+    QVERIFY(states & XdgShellSurface::State::Activated);
+
     QCOMPARE(decorationConfiguredSpy.count(), 1);
     QCOMPARE(deco->mode(), XdgDecoration::Mode::ServerSide);
 
     // go to maximized
     xdgShellSurface->setMaximized(true);
-    QVERIFY(sizeChangeRequestedSpy.wait());
-    QCOMPARE(sizeChangeRequestedSpy.count(), 1);
+    QVERIFY(configureRequestedSpy.wait());
+    QCOMPARE(configureRequestedSpy.count(), 2);
+    states = configureRequestedSpy.last().at(1).value<XdgShellSurface::States>();
+    QVERIFY(states & XdgShellSurface::State::Maximized);
 
-    for (const auto &it: configureRequestedSpy) {
-        xdgShellSurface->ackConfigure(it[2].toInt());
-    }
-    Test::render(surface.data(), sizeChangeRequestedSpy.last().first().toSize(), Qt::red);
-    QVERIFY(geometryChangedSpy.wait());
+    xdgShellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
+    Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::red);
+    QVERIFY(frameGeometryChangedSpy.wait());
 
     // no deco
     QVERIFY(!client->isDecorated());
@@ -358,18 +402,44 @@ void TestMaximized::testBorderlessMaximizedWindowNoClientSideDecoration()
 
     // go back to normal
     xdgShellSurface->setMaximized(false);
-    QVERIFY(sizeChangeRequestedSpy.wait());
-    QCOMPARE(sizeChangeRequestedSpy.count(), 2);
+    QVERIFY(configureRequestedSpy.wait());
+    QCOMPARE(configureRequestedSpy.count(), 3);
+    states = configureRequestedSpy.last().at(1).value<XdgShellSurface::States>();
+    QVERIFY(!(states & XdgShellSurface::State::Maximized));
 
-    for (const auto &it: configureRequestedSpy) {
-        xdgShellSurface->ackConfigure(it[2].toInt());
-    }
-    Test::render(surface.data(), sizeChangeRequestedSpy.last().first().toSize(), Qt::red);
-    QVERIFY(geometryChangedSpy.wait());
+    xdgShellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
+    Test::render(surface.data(), configureRequestedSpy.last().first().toSize(), Qt::red);
+    QVERIFY(frameGeometryChangedSpy.wait());
 
     QVERIFY(client->isDecorated());
     QVERIFY(!client->noBorder());
     QCOMPARE(deco->mode(), XdgDecoration::Mode::ServerSide);
+}
+
+void TestMaximized::testMaximizedGainFocusAndBeActivated()
+{
+    // This test verifies that a window will be raised and gain focus  when it's maximized
+    QScopedPointer<Surface> surface(Test::createSurface());
+    QScopedPointer<XdgShellSurface> xdgShellSurface(Test::createXdgShellStableSurface(surface.data()));
+    auto client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    QScopedPointer<Surface> surface2(Test::createSurface());
+    QScopedPointer<XdgShellSurface> xdgShellSurface2(Test::createXdgShellStableSurface(surface2.data()));
+    auto client2 = Test::renderAndWaitForShown(surface2.data(), QSize(100, 50), Qt::blue);
+
+    QVERIFY(!client->isActive());
+    QVERIFY(client2->isActive());
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{client, client2}));
+
+    workspace()->performWindowOperation(client, Options::MaximizeOp);
+
+    QVERIFY(client->isActive());
+    QVERIFY(!client2->isActive());
+    QCOMPARE(workspace()->stackingOrder(), (QList<Toplevel *>{client2, client}));
+
+    xdgShellSurface.reset();
+    QVERIFY(Test::waitForWindowDestroyed(client));
+    xdgShellSurface2.reset();
+    QVERIFY(Test::waitForWindowDestroyed(client2));
 }
 
 WAYLANDTEST_MAIN(TestMaximized)

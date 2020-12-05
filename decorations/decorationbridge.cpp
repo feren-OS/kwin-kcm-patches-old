@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2014 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2014 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "decorationbridge.h"
 #include "decoratedclient.h"
 #include "decorationrenderer.h"
@@ -36,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KDecoration2/DecorationSettings>
 
 // KWayland
-#include <KWayland/Server/server_decoration_interface.h>
+#include <KWaylandServer/server_decoration_interface.h>
 
 // Frameworks
 #include <KPluginMetaData>
@@ -111,7 +100,7 @@ void DecorationBridge::readDecorationOptions()
 
 void DecorationBridge::init()
 {
-    using namespace KWayland::Server;
+    using namespace KWaylandServer;
     m_noPlugin = readNoPlugin();
     if (m_noPlugin) {
         if (waylandServer()) {
@@ -311,17 +300,21 @@ QString settingsProperty(const QVariant &variant)
 QString DecorationBridge::supportInformation() const
 {
     QString b;
-    b.append(QStringLiteral("Plugin: %1\n").arg(m_plugin));
-    b.append(QStringLiteral("Theme: %1\n").arg(m_theme));
-    b.append(QStringLiteral("Plugin recommends border size: %1\n").arg(m_recommendedBorderSize.isNull() ? "No" : m_recommendedBorderSize));
-    b.append(QStringLiteral("Blur: %1\n").arg(m_blur));
-    const QMetaObject *metaOptions = m_settings->metaObject();
-    for (int i=0; i<metaOptions->propertyCount(); ++i) {
-        const QMetaProperty property = metaOptions->property(i);
-        if (QLatin1String(property.name()) == QLatin1String("objectName")) {
-            continue;
+    if (m_noPlugin) {
+        b.append(QStringLiteral("Decorations are disabled"));
+    } else {
+        b.append(QStringLiteral("Plugin: %1\n").arg(m_plugin));
+        b.append(QStringLiteral("Theme: %1\n").arg(m_theme));
+        b.append(QStringLiteral("Plugin recommends border size: %1\n").arg(m_recommendedBorderSize.isNull() ? "No" : m_recommendedBorderSize));
+        b.append(QStringLiteral("Blur: %1\n").arg(m_blur));
+        const QMetaObject *metaOptions = m_settings->metaObject();
+        for (int i=0; i<metaOptions->propertyCount(); ++i) {
+            const QMetaProperty property = metaOptions->property(i);
+            if (QLatin1String(property.name()) == QLatin1String("objectName")) {
+                continue;
+            }
+            b.append(QStringLiteral("%1: %2\n").arg(property.name()).arg(settingsProperty(m_settings->property(property.name()))));
         }
-        b.append(QStringLiteral("%1: %2\n").arg(property.name()).arg(settingsProperty(m_settings->property(property.name()))));
     }
     return b;
 }

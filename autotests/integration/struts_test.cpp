@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "platform.h"
 #include "x11client.h"
@@ -26,7 +15,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "xdgshellclient.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/compositor.h>
@@ -67,11 +55,10 @@ private:
 
 void StrutsTest::initTestCase()
 {
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Deleted*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
@@ -85,7 +72,7 @@ void StrutsTest::initTestCase()
     kwinApp()->setConfig(config);
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -100,7 +87,7 @@ void StrutsTest::init()
     m_plasmaShell = Test::waylandPlasmaShell();
 
     screens()->setCurrent(0);
-    Cursor::setPos(QPoint(640, 512));
+    Cursors::self()->mouse()->setPos(QPoint(640, 512));
     QVERIFY(waylandServer()->clients().isEmpty());
 }
 
@@ -168,7 +155,7 @@ void StrutsTest::testWaylandStruts()
 
     QFETCH(QVector<QRect>, windowGeometries);
     // create the panels
-    QHash<Surface*, XdgShellClient *> clients;
+    QHash<Surface*, AbstractClient *> clients;
     for (auto it = windowGeometries.constBegin(), end = windowGeometries.constEnd(); it != end; it++) {
         const QRect windowGeometry = *it;
         Surface *surface = Test::createSurface(m_compositor);
@@ -246,10 +233,10 @@ void StrutsTest::testMoveWaylandPanel()
     QCOMPARE(workspace()->clientArea(MaximizeArea, 1, 1), QRect(1280, 0, 1280, 1024));
     QCOMPARE(workspace()->clientArea(WorkArea, 0, 1), QRect(0, 0, 2560, 1000));
 
-    QSignalSpy geometryChangedSpy(c, &XdgShellClient::geometryShapeChanged);
-    QVERIFY(geometryChangedSpy.isValid());
+    QSignalSpy frameGeometryChangedSpy(c, &AbstractClient::frameGeometryChanged);
+    QVERIFY(frameGeometryChangedSpy.isValid());
     plasmaSurface->setPosition(QPoint(1280, 1000));
-    QVERIFY(geometryChangedSpy.wait());
+    QVERIFY(frameGeometryChangedSpy.wait());
     QCOMPARE(c->frameGeometry(), QRect(1280, 1000, 1280, 24));
     QCOMPARE(workspace()->clientArea(PlacementArea, 0, 1), QRect(0, 0, 1280, 1024));
     QCOMPARE(workspace()->clientArea(MaximizeArea, 0, 1), QRect(0, 0, 1280, 1024));
@@ -946,7 +933,7 @@ void StrutsTest::testWindowMoveWithPanelBetweenScreens()
     QCOMPARE(client2->pos(), QPoint(1500, 400));
 
     const QRect origGeo = client2->frameGeometry();
-    Cursor::setPos(origGeo.center());
+    Cursors::self()->mouse()->setPos(origGeo.center());
     workspace()->performWindowOperation(client2, Options::MoveOp);
     QTRY_COMPARE(workspace()->moveResizeClient(), client2);
     QVERIFY(client2->isMove());

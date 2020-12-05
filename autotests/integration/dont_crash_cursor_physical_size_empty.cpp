@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2018 Martin Flöser <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2018 Martin Flöser <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "composite.h"
 #include "effectloader.h"
@@ -24,7 +13,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "cursor.h"
 #include "effects.h"
 #include "platform.h"
-#include "xdgshellclient.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -34,8 +22,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/seat.h>
 #include <KWayland/Client/server_decoration.h>
 #include <KWayland/Client/surface.h>
-#include <KWayland/Server/display.h>
-#include <KWayland/Server/output_interface.h>
+#include <KWaylandServer/display.h>
+#include <KWaylandServer/output_interface.h>
 
 using namespace KWin;
 using namespace KWayland::Client;
@@ -48,7 +36,6 @@ private Q_SLOTS:
     void init();
     void initTestCase();
     void cleanup();
-    void testMoveCursorOverDeco_data();
     void testMoveCursorOverDeco();
 };
 
@@ -57,7 +44,7 @@ void DontCrashCursorPhysicalSizeEmpty::init()
     QVERIFY(Test::setupWaylandConnection(Test::AdditionalWaylandInterface::Decoration));
 
     screens()->setCurrent(0);
-    KWin::Cursor::setPos(QPoint(640, 512));
+    KWin::Cursors::self()->mouse()->setPos(QPoint(640, 512));
 }
 
 void DontCrashCursorPhysicalSizeEmpty::cleanup()
@@ -67,10 +54,9 @@ void DontCrashCursorPhysicalSizeEmpty::cleanup()
 
 void DontCrashCursorPhysicalSizeEmpty::initTestCase()
 {
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
 
@@ -83,15 +69,7 @@ void DontCrashCursorPhysicalSizeEmpty::initTestCase()
     qputenv("XCURSOR_SIZE", QByteArrayLiteral("0"));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
-}
-
-void DontCrashCursorPhysicalSizeEmpty::testMoveCursorOverDeco_data()
-{
-    QTest::addColumn<Test::XdgShellSurfaceType>("type");
-
-    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
-    QTest::newRow("xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
+    QVERIFY(applicationStartedSpy.wait());
 }
 
 void DontCrashCursorPhysicalSizeEmpty::testMoveCursorOverDeco()
@@ -100,22 +78,21 @@ void DontCrashCursorPhysicalSizeEmpty::testMoveCursorOverDeco()
     // a reason for creation failure could be physical size not existing
     // see BUG: 390314
     QScopedPointer<Surface> surface(Test::createSurface());
-    QFETCH(Test::XdgShellSurfaceType, type);
     Test::waylandServerSideDecoration()->create(surface.data(), surface.data());
-    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
 
     auto c = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(c);
     QVERIFY(c->isDecorated());
 
     // destroy physical size
-    KWayland::Server::Display *display = waylandServer()->display();
+    KWaylandServer::Display *display = waylandServer()->display();
     auto output = display->outputs().first();
     output->setPhysicalSize(QSize(0, 0));
     // and fake a cursor theme change, so that the theme gets recreated
-    emit KWin::Cursor::self()->themeChanged();
+    emit KWin::Cursors::self()->mouse()->themeChanged();
 
-    KWin::Cursor::setPos(QPoint(c->frameGeometry().center().x(), c->clientPos().y() / 2));
+    KWin::Cursors::self()->mouse()->setPos(QPoint(c->frameGeometry().center().x(), c->clientPos().y() / 2));
 }
 
 WAYLANDTEST_MAIN(DontCrashCursorPhysicalSizeEmpty)

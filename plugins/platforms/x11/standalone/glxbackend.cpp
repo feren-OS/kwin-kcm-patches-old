@@ -1,26 +1,15 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2012 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2012 Martin Gräßlin <mgraesslin@kde.org>
 
-Based on glcompmgr code by Felix Bellaby.
-Using code from Compiz and Beryl.
+    Based on glcompmgr code by Felix Bellaby.
+    Using code from Compiz and Beryl.
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 // own
 #include "glxbackend.h"
@@ -573,7 +562,7 @@ FBConfigInfo *GlxBackend::infoForVisual(xcb_visualid_t visual)
     const xcb_render_directformat_t *direct = XRenderUtils::findPictFormatInfo(format);
 
     if (!direct) {
-        qCCritical(KWIN_X11STANDALONE).nospace() << "Could not find a picture format for visual 0x" << hex << visual;
+        qCCritical(KWIN_X11STANDALONE).nospace() << "Could not find a picture format for visual 0x" << Qt::hex << visual;
         return info;
     }
 
@@ -607,7 +596,7 @@ FBConfigInfo *GlxBackend::infoForVisual(xcb_visualid_t visual)
     GLXFBConfig *configs = glXChooseFBConfig(display(), DefaultScreen(display()), attribs, &count);
 
     if (count < 1) {
-        qCCritical(KWIN_X11STANDALONE).nospace() << "Could not find a framebuffer configuration for visual 0x" << hex << visual;
+        qCCritical(KWIN_X11STANDALONE).nospace() << "Could not find a framebuffer configuration for visual 0x" << Qt::hex << visual;
         return info;
     }
 
@@ -689,7 +678,7 @@ FBConfigInfo *GlxBackend::infoForVisual(xcb_visualid_t visual)
         glXGetFBConfigAttrib(display(), info->fbconfig, GLX_FBCONFIG_ID, &fbc_id);
         glXGetFBConfigAttrib(display(), info->fbconfig, GLX_VISUAL_ID,   &visual_id);
 
-        qCDebug(KWIN_X11STANDALONE).nospace() << "Using FBConfig 0x" << hex << fbc_id << " for visual 0x" << hex << visual_id;
+        qCDebug(KWIN_X11STANDALONE).nospace() << "Using FBConfig 0x" << Qt::hex << fbc_id << " for visual 0x" << Qt::hex << visual_id;
     }
 
     return info;

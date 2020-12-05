@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013, 2016 Martin Gräßlin <mgraesslin@kde.org>
-Copyright (C) 2018 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2013, 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2018 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "touch_input.h"
 #include "abstract_client.h"
 #include "input.h"
@@ -30,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // KDecoration
 #include <KDecoration2/Decoration>
 // KWayland
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/seat_interface.h>
 // screenlocker
 #include <KScreenLocker/KsldApp>
 // Qt
@@ -116,15 +105,15 @@ void TouchInputRedirection::focusUpdate(Toplevel *focusOld, Toplevel *focusNow)
 
     // TODO: invalidate pointer focus?
 
-    // FIXME: add input transformation API to KWayland::Server::SeatInterface for touch input
+    // FIXME: add input transformation API to KWaylandServer::SeatInterface for touch input
     seat->setFocusedTouchSurface(focusNow->surface(), -1 * focusNow->inputTransformation().map(focusNow->pos()) + focusNow->pos());
-    m_focusGeometryConnection = connect(focusNow, &Toplevel::geometryChanged, this,
+    m_focusGeometryConnection = connect(focusNow, &Toplevel::frameGeometryChanged, this,
         [this] {
-            if (focus().isNull()) {
+            if (!focus()) {
                 return;
             }
             auto seat = waylandServer()->seat();
-            if (focus().data()->surface() != seat->focusedTouchSurface()) {
+            if (focus()->surface() != seat->focusedTouchSurface()) {
                 return;
             }
             seat->setFocusedTouchSurfacePosition(-1 * focus()->inputTransformation().map(focus()->pos()) + focus()->pos());

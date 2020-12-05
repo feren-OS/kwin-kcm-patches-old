@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "cursor.h"
 #include "platform.h"
@@ -45,13 +34,13 @@ private Q_SLOTS:
 
 void ScreenChangesTest::initTestCase()
 {
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     setenv("QT_QPA_PLATFORM", "wayland", true);
     waylandServer()->initWorkspace();
 }
@@ -61,7 +50,7 @@ void ScreenChangesTest::init()
     QVERIFY(Test::setupWaylandConnection());
 
     screens()->setCurrent(0);
-    KWin::Cursor::setPos(QPoint(640, 512));
+    KWin::Cursors::self()->mouse()->setPos(QPoint(640, 512));
 }
 
 void ScreenChangesTest::cleanup()
@@ -154,6 +143,10 @@ void ScreenChangesTest::testScreenAddRemove()
     QVERIFY(xdgO2ChangedSpy.wait());
     QCOMPARE(xdgO2->logicalPosition(), geometries.at(1).topLeft());
     QCOMPARE(xdgO2->logicalSize(), geometries.at(1).size());
+
+    QVERIFY(xdgO1->name().startsWith("Virtual-"));
+    QVERIFY(xdgO1->name() != xdgO2->name());
+    QVERIFY(!xdgO1->description().isEmpty());
 
     // now let's try to remove one output again
     outputAnnouncedSpy.clear();

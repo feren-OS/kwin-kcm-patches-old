@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
- Copyright (C) 2010 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2010 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "startupfeedback.h"
 // Qt
 #include <QApplication>
@@ -27,7 +16,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QPainter>
 // KDE
 #include <KConfigGroup>
-#include <KIconLoader>
 #include <KSharedConfig>
 #include <KStartupInfo>
 #include <KSelectionOwner>
@@ -36,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <kwinglutils.h>
 
 // based on StartupId in KRunner by Lubos Lunak
-// Copyright (C) 2001 Lubos Lunak <l.lunak@kde.org>
+// SPDX-FileCopyrightText: 2001 Lubos Lunak <l.lunak@kde.org>
 
 namespace KWin
 {
@@ -81,7 +69,7 @@ StartupFeedbackEffect::StartupFeedbackEffect()
     , m_texture(nullptr)
     , m_type(BouncingFeedback)
     , m_blinkingShader(nullptr)
-    , m_cursorSize(0)
+    , m_cursorSize(24)
     , m_configWatcher(KConfigWatcher::create(KSharedConfig::openConfig("klaunchrc", KConfig::NoGlobals)))
 {
     for (int i = 0; i < 5; ++i) {
@@ -279,19 +267,13 @@ void StartupFeedbackEffect::start(const QString& icon)
     auto readCursorSize = []() -> int {
         // read details about the mouse-cursor theme define per default
         KConfigGroup mousecfg(effects->inputConfig(), "Mouse");
-        QString size  = mousecfg.readEntry("cursorSize", QString());
-
-        // fetch a reasonable size for the cursor-theme image
-        bool ok;
-        int cursorSize = size.toInt(&ok);
-        if (!ok)
-            cursorSize = QApplication::style()->pixelMetric(QStyle::PM_LargeIconSize);
+        int cursorSize  = mousecfg.readEntry("cursorSize", 24);
         return cursorSize;
     };
     m_cursorSize = readCursorSize();
     int iconSize = m_cursorSize / 1.5;
     if (!iconSize) {
-        iconSize = IconSize(KIconLoader::Small);
+        iconSize = QApplication::style()->pixelMetric(QStyle::PM_SmallIconSize);
     }
     // get ratio for bouncing cursor so we don't need to manually calculate the sizes for each icon size
     if (m_type == BouncingFeedback)

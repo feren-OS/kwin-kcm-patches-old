@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright 2019 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "dnd.h"
 
 #include "databridge.h"
@@ -33,8 +22,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/surface.h>
 
-#include <KWayland/Server/compositor_interface.h>
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/compositor_interface.h>
+#include <KWaylandServer/seat_interface.h>
+#include <KWaylandServer/datasource_interface.h>
 
 #include <QMouseEvent>
 
@@ -67,7 +57,7 @@ Dnd::Dnd(xcb_atom_t atom, QObject *parent)
                       8192, 8192,           // TODO: get current screen size and connect to changes
                       0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT,
-                      Xwayland::self()->xcbScreen()->root_visual,
+                      XCB_COPY_FROM_PARENT,
                       XCB_CW_EVENT_MASK,
                       dndValues);
     registerXfixes();
@@ -80,16 +70,16 @@ Dnd::Dnd(xcb_atom_t atom, QObject *parent)
                         32, 1, &s_version);
     xcb_flush(xcbConn);
 
-    connect(waylandServer()->seat(), &KWayland::Server::SeatInterface::dragStarted, this, &Dnd::startDrag);
-    connect(waylandServer()->seat(), &KWayland::Server::SeatInterface::dragEnded, this, &Dnd::endDrag);
+    connect(waylandServer()->seat(), &KWaylandServer::SeatInterface::dragStarted, this, &Dnd::startDrag);
+    connect(waylandServer()->seat(), &KWaylandServer::SeatInterface::dragEnded, this, &Dnd::endDrag);
 
     const auto *comp = waylandServer()->compositor();
     m_surface = waylandServer()->internalCompositor()->createSurface(this);
     m_surface->setInputRegion(nullptr);
     m_surface->commit(KWayland::Client::Surface::CommitFlag::None);
     auto *dc = new QMetaObject::Connection();
-    *dc = connect(comp, &KWayland::Server::CompositorInterface::surfaceCreated, this,
-                 [this, dc](KWayland::Server::SurfaceInterface *si) {
+    *dc = connect(comp, &KWaylandServer::CompositorInterface::surfaceCreated, this,
+                 [this, dc](KWaylandServer::SurfaceInterface *si) {
                     // TODO: how to make sure that it is the iface of m_surface?
                     if (m_surfaceIface || si->client() != waylandServer()->internalConnection()) {
                         return;
@@ -200,7 +190,7 @@ void Dnd::startDrag()
 
     // New Wl to X drag, init drag and Wl source.
     m_currentDrag = new WlToXDrag();
-    auto source = new WlSource(this, ddi);
+    auto source = new WlSource(this);
     source->setDataSourceIface(ddi->dragSource());
     setWlSource(source);
     ownSelection(true);

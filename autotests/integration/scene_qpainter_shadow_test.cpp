@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include <algorithm>
 #include <cmath>
@@ -37,11 +26,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/shadow.h>
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/surface.h>
-#include <KWayland/Server/shadow_interface.h>
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/shadow_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #include "kwin_wayland_test.h"
 
+#include "abstract_client.h"
 #include "composite.h"
 #include "effect_builtins.h"
 #include "effectloader.h"
@@ -49,7 +39,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "platform.h"
 #include "plugins/scenes/qpainter/scene_qpainter.h"
 #include "shadow.h"
-#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
@@ -116,10 +105,9 @@ void SceneQPainterShadowTest::initTestCase()
 {
     // Copied from scene_qpainter_test.cpp
 
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
 
@@ -145,7 +133,7 @@ void SceneQPainterShadowTest::initTestCase()
     qputenv("KWIN_COMPOSE", QByteArrayLiteral("Q"));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QVERIFY(KWin::Compositor::self());
 
     // Add directory with fake decorations to the plugin search path.
@@ -754,7 +742,7 @@ void SceneQPainterShadowTest::testShadowTextureReconstruction()
     clientShadow->setOffsets(QMarginsF(128, 128, 128, 128));
 
     // Commit shadow.
-    QSignalSpy shadowChangedSpy(client->surface(), &KWayland::Server::SurfaceInterface::shadowChanged);
+    QSignalSpy shadowChangedSpy(client->surface(), &KWaylandServer::SurfaceInterface::shadowChanged);
     QVERIFY(shadowChangedSpy.isValid());
     clientShadow->commit();
     surface->commit(Surface::CommitFlag::None);

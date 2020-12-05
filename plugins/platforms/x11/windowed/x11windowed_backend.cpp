@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "x11windowed_backend.h"
 #include "x11windowed_output.h"
 #include "scene_qpainter_x11_backend.h"
@@ -26,14 +15,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "egl_x11_backend.h"
 #include "outputscreens.h"
 #include <kwinxrenderutils.h>
+#include <cursor.h>
+#include <pointer_input.h>
 // KDE
 #include <KLocalizedString>
 #include <QAbstractEventDispatcher>
 #include <QCoreApplication>
 #include <QSocketNotifier>
 // kwayland
-#include <KWayland/Server/display.h>
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/display.h>
+#include <KWaylandServer/seat_interface.h>
 // xcb
 #include <xcb/xcb_keysyms.h>
 // X11
@@ -94,9 +85,10 @@ void X11WindowedBackend::init()
         XRenderUtils::init(m_connection, m_screen->root);
         createOutputs();
         connect(kwinApp(), &Application::workspaceCreated, this, &X11WindowedBackend::startEventReading);
-        connect(this, &X11WindowedBackend::cursorChanged, this,
+        connect(Cursors::self(), &Cursors::currentCursorChanged, this,
             [this] {
-                createCursor(softwareCursor(), softwareCursorHotspot());
+                KWin::Cursor* c = KWin::Cursors::self()->currentCursor();
+                createCursor(c->image(), c->hotspot());
             }
         );
         setReady(true);
@@ -489,7 +481,6 @@ void X11WindowedBackend::createCursor(const QImage &srcImage, const QPoint &hots
     }
     m_cursor = cid;
     xcb_flush(m_connection);
-    markCursorAsRendered();
 }
 
 xcb_window_t X11WindowedBackend::rootWindow() const

@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2019 Martin Flöser <mgraesslin@kde.org>
-Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2019 Martin Flöser <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "internal_client.h"
 #include "decorations/decorationbridge.h"
 #include "deleted.h"
@@ -31,13 +20,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Q_DECLARE_METATYPE(NET::WindowType)
 
 static const QByteArray s_skipClosePropertyName = QByteArrayLiteral("KWIN_SKIP_CLOSE_ANIMATION");
+static const QByteArray s_shadowEnabledPropertyName = QByteArrayLiteral("kwin_shadow_enabled");
 
 namespace KWin
 {
 
 InternalClient::InternalClient(QWindow *window)
     : m_internalWindow(window)
-    , m_clientSize(window->size())
     , m_windowId(window->winId())
     , m_internalWindowFlags(window->flags())
 {
@@ -62,6 +51,7 @@ InternalClient::InternalClient(QWindow *window)
     setOpacity(m_internalWindow->opacity());
     setSkipCloseAnimation(m_internalWindow->property(s_skipClosePropertyName).toBool());
 
+    // Create scene window, effect window, and update server-side shadow.
     setupCompositing();
     updateColorScheme();
 
@@ -86,6 +76,9 @@ bool InternalClient::eventFilter(QObject *watched, QEvent *event)
         if (pe->propertyName() == s_skipClosePropertyName) {
             setSkipCloseAnimation(m_internalWindow->property(s_skipClosePropertyName).toBool());
         }
+        if (pe->propertyName() == s_shadowEnabledPropertyName) {
+            updateShadow();
+        }
         if (pe->propertyName() == "kwin_windowType") {
             m_windowType = m_internalWindow->property("kwin_windowType").value<NET::WindowType>();
             workspace()->updateClientArea();
@@ -96,7 +89,7 @@ bool InternalClient::eventFilter(QObject *watched, QEvent *event)
 
 QRect InternalClient::bufferGeometry() const
 {
-    return frameGeometry() - frameMargins();
+    return m_clientGeometry;
 }
 
 QStringList InternalClient::activities() const
@@ -134,14 +127,14 @@ QPoint InternalClient::clientContentPos() const
     return -1 * clientPos();
 }
 
-QSize InternalClient::clientSize() const
+QSize InternalClient::minSize() const
 {
-    return m_clientSize;
+    return m_internalWindow->minimumSize();
 }
 
-void InternalClient::debug(QDebug &stream) const
+QSize InternalClient::maxSize() const
 {
-    stream.nospace() << "\'InternalClient:" << m_internalWindow << "\'";
+    return m_internalWindow->maximumSize();
 }
 
 QRect InternalClient::transparentRect() const
@@ -203,26 +196,6 @@ bool InternalClient::isCloseable() const
     return true;
 }
 
-bool InternalClient::isFullScreenable() const
-{
-    return false;
-}
-
-bool InternalClient::isFullScreen() const
-{
-    return false;
-}
-
-bool InternalClient::isMaximizable() const
-{
-    return false;
-}
-
-bool InternalClient::isMinimizable() const
-{
-    return false;
-}
-
 bool InternalClient::isMovable() const
 {
     return true;
@@ -236,6 +209,11 @@ bool InternalClient::isMovableAcrossScreens() const
 bool InternalClient::isResizable() const
 {
     return true;
+}
+
+bool InternalClient::isPlaceable() const
+{
+    return !m_internalWindowFlags.testFlag(Qt::BypassWindowManagerHint) && !m_internalWindowFlags.testFlag(Qt::Popup);
 }
 
 bool InternalClient::noBorder() const
@@ -266,14 +244,6 @@ bool InternalClient::isLockScreen() const
     return false;
 }
 
-bool InternalClient::isInputMethod() const
-{
-    if (m_internalWindow) {
-        return m_internalWindow->property("__kwin_input_method").toBool();
-    }
-    return false;
-}
-
 bool InternalClient::isOutline() const
 {
     if (m_internalWindow) {
@@ -285,16 +255,6 @@ bool InternalClient::isOutline() const
 quint32 InternalClient::windowId() const
 {
     return m_windowId;
-}
-
-MaximizeMode InternalClient::maximizeMode() const
-{
-    return MaximizeRestore;
-}
-
-QRect InternalClient::geometryRestore() const
-{
-    return m_maximizeRestoreGeometry;
 }
 
 bool InternalClient::isShown(bool shaded_is_shown) const
@@ -314,27 +274,18 @@ void InternalClient::hideClient(bool hide)
     Q_UNUSED(hide)
 }
 
-void InternalClient::resizeWithChecks(int w, int h, ForceGeometry_t force)
+void InternalClient::resizeWithChecks(const QSize &size, ForceGeometry_t force)
 {
     Q_UNUSED(force)
     if (!m_internalWindow) {
         return;
     }
-    QRect area = workspace()->clientArea(WorkArea, this);
-    // don't allow growing larger than workarea
-    if (w > area.width()) {
-        w = area.width();
-    }
-    if (h > area.height()) {
-        h = area.height();
-    }
-    setFrameGeometry(QRect(x(), y(), w, h));
+    const QRect area = workspace()->clientArea(WorkArea, this);
+    setFrameGeometry(QRect{pos(), size.boundedTo(area.size())}, force);
 }
 
-void InternalClient::setFrameGeometry(int x, int y, int w, int h, ForceGeometry_t force)
+void InternalClient::setFrameGeometry(const QRect &rect, ForceGeometry_t force)
 {
-    const QRect rect(x, y, w, h);
-
     if (areGeometryUpdatesBlocked()) {
         m_frameGeometry = rect;
         if (pendingGeometryUpdate() == PendingGeometryForced) {
@@ -358,21 +309,11 @@ void InternalClient::setFrameGeometry(int x, int y, int w, int h, ForceGeometry_
 
     const QRect newClientGeometry = frameRectToClientRect(rect);
 
-    if (m_clientSize == newClientGeometry.size()) {
+    if (clientSize() == newClientGeometry.size()) {
         commitGeometry(rect);
     } else {
         requestGeometry(rect);
     }
-}
-
-void InternalClient::setGeometryRestore(const QRect &rect)
-{
-    m_maximizeRestoreGeometry = rect;
-}
-
-bool InternalClient::supportsWindowRules() const
-{
-    return false;
 }
 
 AbstractClient *InternalClient::findModal(bool allow_itself)
@@ -388,19 +329,9 @@ void InternalClient::setOnAllActivities(bool set)
     // Internal clients do not support activities.
 }
 
-void InternalClient::takeFocus()
-{
-}
-
-bool InternalClient::userCanSetFullScreen() const
+bool InternalClient::takeFocus()
 {
     return false;
-}
-
-void InternalClient::setFullScreen(bool set, bool user)
-{
-    Q_UNUSED(set)
-    Q_UNUSED(user)
 }
 
 void InternalClient::setNoBorder(bool set)
@@ -443,17 +374,9 @@ void InternalClient::updateDecoration(bool check_workspace_pos, bool force)
     }
 }
 
-void InternalClient::updateColorScheme()
-{
-    AbstractClient::updateColorScheme(QString());
-}
-
-void InternalClient::showOnScreenEdge()
-{
-}
-
 void InternalClient::destroyClient()
 {
+    markAsZombie();
     if (isMoveResize()) {
         leaveMoveResize();
     }
@@ -477,7 +400,7 @@ void InternalClient::present(const QSharedPointer<QOpenGLFramebufferObject> fbo)
 
     const QSize bufferSize = fbo->size() / bufferScale();
 
-    commitGeometry(QRect(pos(), sizeForClientSize(bufferSize)));
+    commitGeometry(QRect(pos(), clientSizeToFrameSize(bufferSize)));
     markAsMapped();
 
     if (m_internalFBO != fbo) {
@@ -496,7 +419,7 @@ void InternalClient::present(const QImage &image, const QRegion &damage)
 
     const QSize bufferSize = image.size() / bufferScale();
 
-    commitGeometry(QRect(pos(), sizeForClientSize(bufferSize)));
+    commitGeometry(QRect(pos(), clientSizeToFrameSize(bufferSize)));
     markAsMapped();
 
     if (m_internalImage.size() != image.size()) {
@@ -525,26 +448,6 @@ bool InternalClient::belongsToSameApplication(const AbstractClient *other, SameA
     Q_UNUSED(checks)
 
     return qobject_cast<const InternalClient *>(other) != nullptr;
-}
-
-void InternalClient::changeMaximize(bool horizontal, bool vertical, bool adjust)
-{
-    Q_UNUSED(horizontal)
-    Q_UNUSED(vertical)
-    Q_UNUSED(adjust)
-
-    // Internal clients are not maximizable.
-}
-
-void InternalClient::destroyDecoration()
-{
-    if (!isDecorated()) {
-        return;
-    }
-
-    const QRect clientGeometry = frameRectToClientRect(frameGeometry());
-    AbstractClient::destroyDecoration();
-    setFrameGeometry(clientGeometry);
 }
 
 void InternalClient::doMove(int x, int y)
@@ -577,32 +480,6 @@ void InternalClient::updateCaption()
     }
 }
 
-void InternalClient::createDecoration(const QRect &rect)
-{
-    KDecoration2::Decoration *decoration = Decoration::DecorationBridge::self()->createDecoration(this);
-    if (decoration) {
-        QMetaObject::invokeMethod(decoration, "update", Qt::QueuedConnection);
-        connect(decoration, &KDecoration2::Decoration::shadowChanged, this, &Toplevel::updateShadow);
-        connect(decoration, &KDecoration2::Decoration::bordersChanged, this,
-            [this]() {
-                GeometryUpdatesBlocker blocker(this);
-                const QRect oldGeometry = frameGeometry();
-                if (!isShade()) {
-                    checkWorkspacePosition(oldGeometry);
-                }
-                emit geometryShapeChanged(this, oldGeometry);
-            }
-        );
-    }
-
-    const QRect oldFrameGeometry = frameGeometry();
-
-    setDecoration(decoration);
-    setFrameGeometry(clientRectToFrameRect(rect));
-
-    emit geometryShapeChanged(this, oldFrameGeometry);
-}
-
 void InternalClient::requestGeometry(const QRect &rect)
 {
     if (m_internalWindow) {
@@ -616,16 +493,25 @@ void InternalClient::commitGeometry(const QRect &rect)
         return;
     }
 
+    // The client geometry and the buffer geometry are the same.
+    const QRect oldClientGeometry = m_clientGeometry;
+    const QRect oldFrameGeometry = m_frameGeometry;
+
+    m_clientGeometry = frameRectToClientRect(rect);
     m_frameGeometry = rect;
 
-    m_clientSize = frameRectToClientRect(frameGeometry()).size();
-
     addWorkspaceRepaint(visibleRect());
+    updateGeometryBeforeUpdateBlocking();
     syncGeometryToInternalWindow();
 
-    const QRect oldGeometry = frameGeometryBeforeUpdateBlocking();
-    updateGeometryBeforeUpdateBlocking();
-    emit geometryShapeChanged(this, oldGeometry);
+    if (oldClientGeometry != m_clientGeometry) {
+        emit bufferGeometryChanged(this, oldClientGeometry);
+        emit clientGeometryChanged(this, oldClientGeometry);
+    }
+    if (oldFrameGeometry != m_frameGeometry) {
+        emit frameGeometryChanged(this, oldFrameGeometry);
+    }
+    emit geometryShapeChanged(this, oldFrameGeometry);
 
     if (isResize()) {
         performMoveResize();

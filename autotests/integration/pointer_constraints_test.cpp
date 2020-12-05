@@ -1,28 +1,17 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
+#include "abstract_client.h"
 #include "cursor.h"
 #include "keyboard_input.h"
 #include "platform.h"
 #include "pointer_input.h"
-#include "xdgshellclient.h"
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -35,8 +24,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/seat.h>
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/surface.h>
-#include <KWayland/Server/seat_interface.h>
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/seat_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #include <linux/input.h>
 
@@ -60,19 +49,16 @@ private Q_SLOTS:
 
     void testConfinedPointer_data();
     void testConfinedPointer();
-    void testLockedPointer_data();
     void testLockedPointer();
-    void testCloseWindowWithLockedPointer_data();
     void testCloseWindowWithLockedPointer();
 };
 
 void TestPointerConstraints::initTestCase()
 {
     qRegisterMetaType<PointerFunc>();
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
@@ -87,7 +73,7 @@ void TestPointerConstraints::initTestCase()
 
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -100,7 +86,7 @@ void TestPointerConstraints::init()
     QVERIFY(Test::waitForWaylandPointer());
 
     screens()->setCurrent(0);
-    KWin::Cursor::setPos(QPoint(1280, 512));
+    KWin::Cursors::self()->mouse()->setPos(QPoint(1280, 512));
 }
 
 void TestPointerConstraints::cleanup()
@@ -110,7 +96,6 @@ void TestPointerConstraints::cleanup()
 
 void TestPointerConstraints::testConfinedPointer_data()
 {
-    QTest::addColumn<Test::XdgShellSurfaceType>("type");
     QTest::addColumn<PointerFunc>("positionFunction");
     QTest::addColumn<int>("xOffset");
     QTest::addColumn<int>("yOffset");
@@ -119,14 +104,10 @@ void TestPointerConstraints::testConfinedPointer_data()
     PointerFunc topRight = &QRect::topRight;
     PointerFunc topLeft = &QRect::topLeft;
 
-    QTest::newRow("XdgShellV6 - bottomLeft")  << Test::XdgShellSurfaceType::XdgShellV6 << bottomLeft  << -1 << 1;
-    QTest::newRow("XdgShellV6 - bottomRight") << Test::XdgShellSurfaceType::XdgShellV6 << bottomRight << 1  << 1;
-    QTest::newRow("XdgShellV6 - topLeft")     << Test::XdgShellSurfaceType::XdgShellV6 << topLeft  << -1 << -1;
-    QTest::newRow("XdgShellV6 - topRight")    << Test::XdgShellSurfaceType::XdgShellV6 << topRight << 1  << -1;
-    QTest::newRow("XdgWmBase - bottomLeft")   << Test::XdgShellSurfaceType::XdgShellStable << bottomLeft  << -1 << 1;
-    QTest::newRow("XdgWmBase - bottomRight")  << Test::XdgShellSurfaceType::XdgShellStable << bottomRight << 1  << 1;
-    QTest::newRow("XdgWmBase - topLeft")      << Test::XdgShellSurfaceType::XdgShellStable << topLeft  << -1 << -1;
-    QTest::newRow("XdgWmBase - topRight")     << Test::XdgShellSurfaceType::XdgShellStable << topRight << 1  << -1;
+    QTest::newRow("XdgWmBase - bottomLeft")   << bottomLeft  << -1 << 1;
+    QTest::newRow("XdgWmBase - bottomRight")  << bottomRight << 1  << 1;
+    QTest::newRow("XdgWmBase - topLeft")      << topLeft  << -1 << -1;
+    QTest::newRow("XdgWmBase - topRight")     << topRight << 1  << -1;
 }
 
 void TestPointerConstraints::testConfinedPointer()
@@ -134,8 +115,7 @@ void TestPointerConstraints::testConfinedPointer()
     // this test sets up a Surface with a confined pointer
     // simple interaction test to verify that the pointer gets confined
     QScopedPointer<Surface> surface(Test::createSurface());
-    QFETCH(Test::XdgShellSurfaceType, type);
-    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<ConfinedPointer> confinedPointer(Test::waylandPointerConstraints()->confinePointer(surface.data(), pointer.data(), nullptr, PointerConstraints::LifeTime::OneShot));
     QSignalSpy confinedSpy(confinedPointer.data(), &ConfinedPointer::confined);
@@ -149,49 +129,49 @@ void TestPointerConstraints::testConfinedPointer()
     if (c->pos() == QPoint(0, 0)) {
         c->move(QPoint(1, 1));
     }
-    QVERIFY(!c->frameGeometry().contains(KWin::Cursor::pos()));
+    QVERIFY(!c->frameGeometry().contains(KWin::Cursors::self()->mouse()->pos()));
 
     // now let's confine
     QCOMPARE(input()->pointer()->isConstrained(), false);
-    KWin::Cursor::setPos(c->frameGeometry().center());
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center());
     QCOMPARE(input()->pointer()->isConstrained(), true);
     QVERIFY(confinedSpy.wait());
 
     // picking a position outside the window geometry should not move pointer
     QSignalSpy pointerPositionChangedSpy(input(), &InputRedirection::globalPointerChanged);
     QVERIFY(pointerPositionChangedSpy.isValid());
-    KWin::Cursor::setPos(QPoint(1280, 512));
+    KWin::Cursors::self()->mouse()->setPos(QPoint(1280, 512));
     QVERIFY(pointerPositionChangedSpy.isEmpty());
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center());
 
     // TODO: test relative motion
     QFETCH(PointerFunc, positionFunction);
     const QPoint position = positionFunction(c->frameGeometry());
-    KWin::Cursor::setPos(position);
+    KWin::Cursors::self()->mouse()->setPos(position);
     QCOMPARE(pointerPositionChangedSpy.count(), 1);
-    QCOMPARE(KWin::Cursor::pos(), position);
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), position);
     // moving one to right should not be possible
     QFETCH(int, xOffset);
-    KWin::Cursor::setPos(position + QPoint(xOffset, 0));
+    KWin::Cursors::self()->mouse()->setPos(position + QPoint(xOffset, 0));
     QCOMPARE(pointerPositionChangedSpy.count(), 1);
-    QCOMPARE(KWin::Cursor::pos(), position);
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), position);
     // moving one to bottom should not be possible
     QFETCH(int, yOffset);
-    KWin::Cursor::setPos(position + QPoint(0, yOffset));
+    KWin::Cursors::self()->mouse()->setPos(position + QPoint(0, yOffset));
     QCOMPARE(pointerPositionChangedSpy.count(), 1);
-    QCOMPARE(KWin::Cursor::pos(), position);
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), position);
 
     // modifier + click should be ignored
     // first ensure the settings are ok
     KConfigGroup group = kwinApp()->config()->group("MouseBindings");
-    group.writeEntry("CommandAllKey", QStringLiteral("Alt"));
+    group.writeEntry("CommandAllKey", QStringLiteral("Meta"));
     group.writeEntry("CommandAll1", "Move");
     group.writeEntry("CommandAll2", "Move");
     group.writeEntry("CommandAll3", "Move");
     group.writeEntry("CommandAllWheel", "change opacity");
     group.sync();
     workspace()->slotReconfigure();
-    QCOMPARE(options->commandAllModifier(), Qt::AltModifier);
+    QCOMPARE(options->commandAllModifier(), Qt::MetaModifier);
     QCOMPARE(options->commandAll1(), Options::MouseUnrestrictedMove);
     QCOMPARE(options->commandAll2(), Options::MouseUnrestrictedMove);
     QCOMPARE(options->commandAll3(), Options::MouseUnrestrictedMove);
@@ -227,7 +207,7 @@ void TestPointerConstraints::testConfinedPointer()
     QVERIFY(unconfinedSpy2.isValid());
 
     // activate it again, this confines again
-    workspace()->activateClient(static_cast<AbstractClient*>(input()->pointer()->focus().data()));
+    workspace()->activateClient(static_cast<AbstractClient*>(input()->pointer()->focus()));
     QVERIFY(confinedSpy2.wait());
     QCOMPARE(input()->pointer()->isConstrained(), true);
 
@@ -236,13 +216,13 @@ void TestPointerConstraints::testConfinedPointer()
     QVERIFY(unconfinedSpy2.wait());
     QCOMPARE(input()->pointer()->isConstrained(), false);
     // activate it again, this confines again
-    workspace()->activateClient(static_cast<AbstractClient*>(input()->pointer()->focus().data()));
+    workspace()->activateClient(static_cast<AbstractClient*>(input()->pointer()->focus()));
     QVERIFY(confinedSpy2.wait());
     QCOMPARE(input()->pointer()->isConstrained(), true);
 
     // create a second window and move it above our constrained window
     QScopedPointer<Surface> surface2(Test::createSurface());
-    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellSurface(type, surface2.data()));
+    QScopedPointer<XdgShellSurface> shellSurface2(Test::createXdgShellStableSurface(surface2.data()));
     auto c2 = Test::renderAndWaitForShown(surface2.data(), QSize(1280, 1024), Qt::blue);
     QVERIFY(c2);
     QVERIFY(unconfinedSpy2.wait());
@@ -267,7 +247,7 @@ void TestPointerConstraints::testConfinedPointer()
     confinedPointer.reset(nullptr);
     Test::flushWaylandConnection();
 
-    QSignalSpy constraintsChangedSpy(input()->pointer()->focus()->surface(), &KWayland::Server::SurfaceInterface::pointerConstraintsChanged);
+    QSignalSpy constraintsChangedSpy(input()->pointer()->focus()->surface(), &KWaylandServer::SurfaceInterface::pointerConstraintsChanged);
     QVERIFY(constraintsChangedSpy.isValid());
     QVERIFY(constraintsChangedSpy.wait());
 
@@ -288,22 +268,13 @@ void TestPointerConstraints::testConfinedPointer()
     QCOMPARE(input()->pointer()->isConstrained(), false);
 }
 
-void TestPointerConstraints::testLockedPointer_data()
-{
-    QTest::addColumn<Test::XdgShellSurfaceType>("type");
-
-    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
-    QTest::newRow("xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
-}
-
 void TestPointerConstraints::testLockedPointer()
 {
     // this test sets up a Surface with a locked pointer
     // simple interaction test to verify that the pointer gets locked
     // the various ways to unlock are not tested as that's already verified by testConfinedPointer
     QScopedPointer<Surface> surface(Test::createSurface());
-    QFETCH(Test::XdgShellSurfaceType, type);
-    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<LockedPointer> lockedPointer(Test::waylandPointerConstraints()->lockPointer(surface.data(), pointer.data(), nullptr, PointerConstraints::LifeTime::OneShot));
     QSignalSpy lockedSpy(lockedPointer.data(), &LockedPointer::locked);
@@ -314,19 +285,19 @@ void TestPointerConstraints::testLockedPointer()
     // now map the window
     auto c = Test::renderAndWaitForShown(surface.data(), QSize(100, 100), Qt::blue);
     QVERIFY(c);
-    QVERIFY(!c->frameGeometry().contains(KWin::Cursor::pos()));
+    QVERIFY(!c->frameGeometry().contains(KWin::Cursors::self()->mouse()->pos()));
 
     // now let's lock
     QCOMPARE(input()->pointer()->isConstrained(), false);
-    KWin::Cursor::setPos(c->frameGeometry().center());
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center());
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center());
     QCOMPARE(input()->pointer()->isConstrained(), true);
     QVERIFY(lockedSpy.wait());
 
     // try to move the pointer
     // TODO: add relative pointer
-    KWin::Cursor::setPos(c->frameGeometry().center() + QPoint(1, 1));
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center());
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center() + QPoint(1, 1));
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center());
 
     // deactivate the client, this should unlock
     workspace()->activateClient(nullptr);
@@ -334,51 +305,42 @@ void TestPointerConstraints::testLockedPointer()
     QVERIFY(unlockedSpy.wait());
 
     // moving cursor should be allowed again
-    KWin::Cursor::setPos(c->frameGeometry().center() + QPoint(1, 1));
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center() + QPoint(1, 1));
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center() + QPoint(1, 1));
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center() + QPoint(1, 1));
 
     lockedPointer.reset(Test::waylandPointerConstraints()->lockPointer(surface.data(), pointer.data(), nullptr, PointerConstraints::LifeTime::Persistent));
     QSignalSpy lockedSpy2(lockedPointer.data(), &LockedPointer::locked);
     QVERIFY(lockedSpy2.isValid());
 
     // activate the client again, this should lock again
-    workspace()->activateClient(static_cast<AbstractClient*>(input()->pointer()->focus().data()));
+    workspace()->activateClient(static_cast<AbstractClient*>(input()->pointer()->focus()));
     QVERIFY(lockedSpy2.wait());
     QCOMPARE(input()->pointer()->isConstrained(), true);
 
     // try to move the pointer
     QCOMPARE(input()->pointer()->isConstrained(), true);
-    KWin::Cursor::setPos(c->frameGeometry().center());
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center() + QPoint(1, 1));
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center() + QPoint(1, 1));
 
     // delete pointer lock
     lockedPointer.reset(nullptr);
     Test::flushWaylandConnection();
 
-    QSignalSpy constraintsChangedSpy(input()->pointer()->focus()->surface(), &KWayland::Server::SurfaceInterface::pointerConstraintsChanged);
+    QSignalSpy constraintsChangedSpy(input()->pointer()->focus()->surface(), &KWaylandServer::SurfaceInterface::pointerConstraintsChanged);
     QVERIFY(constraintsChangedSpy.isValid());
     QVERIFY(constraintsChangedSpy.wait());
 
     // moving cursor should be allowed again
     QCOMPARE(input()->pointer()->isConstrained(), false);
-    KWin::Cursor::setPos(c->frameGeometry().center());
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center());
-}
-
-void TestPointerConstraints::testCloseWindowWithLockedPointer_data()
-{
-    QTest::addColumn<Test::XdgShellSurfaceType>("type");
-
-    QTest::newRow("XdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
-    QTest::newRow("XdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable;
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center());
 }
 
 void TestPointerConstraints::testCloseWindowWithLockedPointer()
 {
     // test case which verifies that the pointer gets unlocked when the window for it gets closed
     QScopedPointer<Surface> surface(Test::createSurface());
-    QFETCH(Test::XdgShellSurfaceType, type);
-    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellSurface(type, surface.data()));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data()));
     QScopedPointer<Pointer> pointer(Test::waylandSeat()->createPointer());
     QScopedPointer<LockedPointer> lockedPointer(Test::waylandPointerConstraints()->lockPointer(surface.data(), pointer.data(), nullptr, PointerConstraints::LifeTime::OneShot));
     QSignalSpy lockedSpy(lockedPointer.data(), &LockedPointer::locked);
@@ -389,12 +351,12 @@ void TestPointerConstraints::testCloseWindowWithLockedPointer()
     // now map the window
     auto c = Test::renderAndWaitForShown(surface.data(), QSize(100, 100), Qt::blue);
     QVERIFY(c);
-    QVERIFY(!c->frameGeometry().contains(KWin::Cursor::pos()));
+    QVERIFY(!c->frameGeometry().contains(KWin::Cursors::self()->mouse()->pos()));
 
     // now let's lock
     QCOMPARE(input()->pointer()->isConstrained(), false);
-    KWin::Cursor::setPos(c->frameGeometry().center());
-    QCOMPARE(KWin::Cursor::pos(), c->frameGeometry().center());
+    KWin::Cursors::self()->mouse()->setPos(c->frameGeometry().center());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), c->frameGeometry().center());
     QCOMPARE(input()->pointer()->isConstrained(), true);
     QVERIFY(lockedSpy.wait());
 

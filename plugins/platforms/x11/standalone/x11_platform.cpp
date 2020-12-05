@@ -1,26 +1,14 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "x11_platform.h"
 #include "x11cursor.h"
 #include "edge.h"
-#include "sync_filter.h"
 #include "windowselector.h"
 #include <config-kwin.h>
 #include <kwinconfig.h>
@@ -74,13 +62,6 @@ X11StandalonePlatform::X11StandalonePlatform(QObject *parent)
         }
     }
 #endif
-    connect(kwinApp(), &Application::workspaceCreated, this,
-        [this] {
-            if (Xcb::Extensions::self()->isSyncAvailable()) {
-                m_syncFilter = std::make_unique<SyncFilter>();
-            }
-        }
-    );
 
     setSupportsGammaControl(true);
 }
@@ -348,22 +329,6 @@ OverlayWindow *X11StandalonePlatform::createOverlayWindow()
     return new OverlayWindowX11();
 }
 
-/*
- Updates xTime(). This used to simply fetch current timestamp from the server,
- but that can cause xTime() to be newer than timestamp of events that are
- still in our events queue, thus e.g. making XSetInputFocus() caused by such
- event to be ignored. Therefore events queue is searched for first
- event with timestamp, and extra PropertyNotify is generated in order to make
- sure such event is found.
-*/
-void X11StandalonePlatform::updateXTime()
-{
-    // NOTE: QX11Info::getTimestamp does not yet search the event queue as the old
-    // solution did. This means there might be regressions currently. See the
-    // documentation above on how it should be done properly.
-    kwinApp()->setX11Time(QX11Info::getTimestamp(), Application::TimestampUpdate::Always);
-}
-
 OutlineVisual *X11StandalonePlatform::createOutline(Outline *outline)
 {
     // first try composited Outline
@@ -530,15 +495,29 @@ void X11StandalonePlatform::doUpdateOutputs()
             o->setGeometry(geo);
             o->setRefreshRate(refreshRate * 1000);
 
-            QString name;
             for (int j = 0; j < info->num_outputs; ++j) {
                 Xcb::RandR::OutputInfo outputInfo(outputInfos.at(j));
-                if (crtc == outputInfo->crtc) {
-                    name = outputInfo.name();
+                if (outputInfo->crtc != crtc) {
+                    continue;
+                }
+                QSize physicalSize(outputInfo->mm_width, outputInfo->mm_height);
+                switch (info->rotation) {
+                case XCB_RANDR_ROTATION_ROTATE_0:
+                case XCB_RANDR_ROTATION_ROTATE_180:
+                    break;
+                case XCB_RANDR_ROTATION_ROTATE_90:
+                case XCB_RANDR_ROTATION_ROTATE_270:
+                    physicalSize.transpose();
+                    break;
+                case XCB_RANDR_ROTATION_REFLECT_X:
+                case XCB_RANDR_ROTATION_REFLECT_Y:
                     break;
                 }
+                o->setName(outputInfo.name());
+                o->setPhysicalSize(physicalSize);
+                break;
             }
-            o->setName(name);
+
             m_outputs << o;
         }
     }

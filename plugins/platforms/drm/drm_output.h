@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_DRM_OUTPUT_H
 #define KWIN_DRM_OUTPUT_H
 
@@ -41,6 +30,7 @@ class DrmDumbBuffer;
 class DrmPlane;
 class DrmConnector;
 class DrmCrtc;
+class Cursor;
 
 class KWIN_EXPORT DrmOutput : public AbstractWaylandOutput
 {
@@ -55,7 +45,7 @@ public:
     bool showCursor();
     bool hideCursor();
     void updateCursor();
-    void moveCursor(const QPoint &globalPos);
+    void moveCursor(Cursor* cursor, const QPoint &globalPos);
     bool init(drmModeConnector *connector);
     bool present(DrmBuffer *buffer);
     void pageFlipped();
@@ -67,13 +57,24 @@ public:
         Suspend = DRM_MODE_DPMS_SUSPEND,
         Off = DRM_MODE_DPMS_OFF
     };
+    Q_ENUM(DpmsMode);
     bool isDpmsEnabled() const {
         // We care for current as well as pending mode in order to allow first present in AMS.
         return m_dpmsModePending == DpmsMode::On;
     }
 
+    DpmsMode dpmsMode() const {
+        return m_dpmsMode;
+    }
+    DpmsMode dpmsModePending() const {
+        return m_dpmsModePending;
+    }
+
     const DrmCrtc *crtc() const {
         return m_crtc;
+    }
+    const DrmConnector *connector() const {
+        return m_conn;
     }
     const DrmPlane *primaryPlane() const {
         return m_primaryPlane;
@@ -82,6 +83,14 @@ public:
     bool initCursor(const QSize &cursorSize);
 
     bool supportsTransformations() const;
+
+    /**
+     * Drm planes might be capable of realizing the current output transform without usage
+     * of compositing. This is a getter to query the current state of that
+     *
+     * @return true if the hardware realizes the transform without further assistance
+     */
+    bool hardwareTransforms() const;
 
 private:
     friend class DrmBackend;
@@ -119,16 +128,14 @@ private:
     void dpmsFinishOff();
 
     bool atomicReqModesetPopulate(drmModeAtomicReq *req, bool enable);
-    void updateDpms(KWayland::Server::OutputInterface::DpmsMode mode) override;
+    void updateDpms(KWaylandServer::OutputInterface::DpmsMode mode) override;
     void updateMode(int modeIndex) override;
     void setWaylandMode();
 
     void updateTransform(Transform transform) override;
-    void automaticRotation();
 
     int gammaRampSize() const override;
     bool setGammaRamp(const GammaRamp &gamma) override;
-    QMatrix4x4 matrixDisplay(const QSize &s) const;
 
     DrmBackend *m_backend;
     DrmConnector *m_conn = nullptr;
@@ -156,7 +163,7 @@ private:
         QPoint globalPos;
         bool valid = false;
     } m_lastWorkingState;
-    DrmDumbBuffer *m_cursor[2] = {nullptr, nullptr};
+    QScopedPointer<DrmDumbBuffer> m_cursor[2];
     int m_cursorIndex = 0;
     bool m_hasNewCursor = false;
     bool m_deleted = false;
@@ -165,6 +172,8 @@ private:
 }
 
 Q_DECLARE_METATYPE(KWin::DrmOutput*)
+
+QDebug& operator<<(QDebug& stream, const KWin::DrmOutput *);
 
 #endif
 

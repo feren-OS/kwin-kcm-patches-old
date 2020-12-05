@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2009, 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2009, 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_SCENE_OPENGL_H
 #define KWIN_SCENE_OPENGL_H
@@ -46,7 +35,7 @@ public:
     ~SceneOpenGL() override;
     bool initFailed() const override;
     bool hasPendingFlush() const override;
-    qint64 paint(QRegion damage, QList<Toplevel *> windows) override;
+    qint64 paint(const QRegion &damage, const QList<Toplevel *> &windows) override;
     Scene::EffectFrame *createEffectFrame(EffectFrameImpl *frame) override;
     Shadow *createShadow(Toplevel *toplevel) override;
     void screenGeometryChanged(const QSize &size) override;
@@ -56,6 +45,7 @@ public:
     bool syncsToVBlank() const override;
     bool makeOpenGLContextCurrent() override;
     void doneOpenGLContextCurrent() override;
+    bool supportsSurfacelessContext() const override;
     Decoration::Renderer *createDecorationRenderer(Decoration::DecoratedClientImpl *impl) override;
     void triggerFence() override;
     virtual QMatrix4x4 projectionMatrix() const = 0;
@@ -80,12 +70,14 @@ public:
     }
 
     QVector<QByteArray> openGLPlatformInterfaceExtensions() const override;
+    QSharedPointer<GLTexture> textureForOutput(AbstractOutput *output) const override;
 
     static SceneOpenGL *createScene(QObject *parent);
 
 protected:
     SceneOpenGL(OpenGLBackend *backend, QObject *parent = nullptr);
-    void paintBackground(QRegion region) override;
+    void paintBackground(const QRegion &region) override;
+    void aboutToStartPainting(const QRegion &damage) override;
     void extendPaintRegion(QRegion &region, bool opaqueFullscreen) override;
     QMatrix4x4 transformation(int mask, const ScreenPaintData &data) const;
     void paintDesktop(int desktop, int mask, const QRegion &region, ScreenPaintData &data) override;
@@ -100,6 +92,7 @@ protected:
     bool init_ok;
 private:
     bool viewportLimitsMatched(const QSize &size) const;
+
 private:
     bool m_debug;
     OpenGLBackend *m_backend;
@@ -123,16 +116,16 @@ public:
     QMatrix4x4 screenProjectionMatrix() const override { return m_screenProjectionMatrix; }
 
 protected:
-    void paintSimpleScreen(int mask, QRegion region) override;
-    void paintGenericScreen(int mask, ScreenPaintData data) override;
+    void paintSimpleScreen(int mask, const QRegion &region) override;
+    void paintGenericScreen(int mask, const ScreenPaintData &data) override;
     void doPaintBackground(const QVector< float >& vertices) override;
     Scene::Window *createWindow(Toplevel *t) override;
-    void finalDrawWindow(EffectWindowImpl* w, int mask, QRegion region, WindowPaintData& data) override;
+    void finalDrawWindow(EffectWindowImpl* w, int mask, const QRegion &region, WindowPaintData& data) override;
     void updateProjectionMatrix() override;
-    void paintCursor() override;
+    void paintCursor(const QRegion &region) override;
 
 private:
-    void performPaintWindow(EffectWindowImpl* w, int mask, QRegion region, WindowPaintData& data);
+    void performPaintWindow(EffectWindowImpl* w, int mask, const QRegion &region, WindowPaintData& data);
     QMatrix4x4 createProjectionMatrix() const;
 
 private:
@@ -147,34 +140,49 @@ class OpenGLWindowPixmap;
 
 class OpenGLWindow final : public Scene::Window
 {
-public:
-    enum Leaf { ShadowLeaf = 0, DecorationLeaf, ContentLeaf, PreviousContentLeaf, LeafCount };
+    Q_OBJECT
 
-    struct LeafNode
+public:
+    enum Leaf { ShadowLeaf, DecorationLeaf, ContentLeaf, PreviousContentLeaf };
+
+    struct RenderNode
     {
-        LeafNode()
-            : texture(nullptr),
-              firstVertex(0),
-              vertexCount(0),
-              opacity(1.0),
-              hasAlpha(false),
-              coordinateType(UnnormalizedCoordinates)
+        RenderNode()
+            : texture(nullptr)
+            , firstVertex(0)
+            , vertexCount(0)
+            , opacity(1.0)
+            , hasAlpha(false)
+            , coordinateType(UnnormalizedCoordinates)
         {
         }
 
         GLTexture *texture;
+        WindowQuadList quads;
         int firstVertex;
         int vertexCount;
         float opacity;
         bool hasAlpha;
         TextureCoordinateType coordinateType;
+        Leaf leafType;
+    };
+
+    struct RenderContext
+    {
+        QVector<RenderNode> renderNodes;
+        int shadowOffset = 0;
+        int decorationOffset = 0;
+        int contentOffset = 0;
+        int previousContentOffset = 0;
+        int quadCount = 0;
     };
 
     OpenGLWindow(Toplevel *toplevel, SceneOpenGL *scene);
     ~OpenGLWindow() override;
 
     WindowPixmap *createWindowPixmap() override;
-    void performPaint(int mask, QRegion region, WindowPaintData data) override;
+    void performPaint(int mask, const QRegion &region, const WindowPaintData &data) override;
+    QSharedPointer<GLTexture> windowTexture() override;
 
 private:
     QMatrix4x4 transformation(int mask, const WindowPaintData &data) const;
@@ -182,9 +190,7 @@ private:
     QMatrix4x4 modelViewProjectionMatrix(int mask, const WindowPaintData &data) const;
     QVector4D modulate(float opacity, float brightness) const;
     void setBlendEnabled(bool enabled);
-    void setupLeafNodes(LeafNode *nodes, const WindowQuadList *quads, const WindowPaintData &data);
-    void renderSubSurface(GLShader *shader, const QMatrix4x4 &mvp, const QMatrix4x4 &windowMatrix,
-                          OpenGLWindowPixmap *pixmap, const QRegion &region, bool hardwareClipping);
+    void initializeRenderContext(RenderContext &context, const WindowPaintData &data);
     bool beginRenderWindow(int mask, const QRegion &region, WindowPaintData &data);
     void endRenderWindow();
     bool bindTexture();
@@ -203,9 +209,9 @@ public:
     bool bind();
     bool isValid() const override;
 protected:
-    WindowPixmap *createChild(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface) override;
+    WindowPixmap *createChild(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface) override;
 private:
-    explicit OpenGLWindowPixmap(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface, WindowPixmap *parent, SceneOpenGL *scene);
+    explicit OpenGLWindowPixmap(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface, WindowPixmap *parent, SceneOpenGL *scene);
     QScopedPointer<SceneOpenGLTexture> m_texture;
     SceneOpenGL *m_scene;
 };
@@ -222,7 +228,7 @@ public:
     void freeTextFrame() override;
     void freeSelection() override;
 
-    void render(QRegion region, double opacity, double frameOpacity) override;
+    void render(const QRegion &region, double opacity, double frameOpacity) override;
 
     void crossFadeIcon() override;
     void crossFadeText() override;

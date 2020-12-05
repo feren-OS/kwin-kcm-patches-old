@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "cursor.h"
 #include "effectloader.h"
@@ -59,8 +48,8 @@ private:
 
 void ScreenEdgeTest::initTestCase()
 {
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
 
@@ -83,7 +72,7 @@ void ScreenEdgeTest::initTestCase()
     kwinApp()->setConfig(config);
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QVERIFY(Scripting::self());
 
     ScreenEdges::self()->setTimeThreshold(0);
@@ -92,7 +81,7 @@ void ScreenEdgeTest::initTestCase()
 
 void ScreenEdgeTest::init()
 {
-    KWin::Cursor::setPos(640, 512);
+    KWin::Cursors::self()->mouse()->setPos(640, 512);
     if (workspace()->showingDesktop()) {
         workspace()->slotToggleShowDesktop();
     }
@@ -160,7 +149,7 @@ void ScreenEdgeTest::testEdge()
 
     // trigger the edge
     QFETCH(QPoint, triggerPos);
-    KWin::Cursor::setPos(triggerPos);
+    KWin::Cursors::self()->mouse()->setPos(triggerPos);
     QCOMPARE(showDesktopSpy.count(), 1);
     QVERIFY(workspace()->showingDesktop());
 }
@@ -243,27 +232,27 @@ void ScreenEdgeTest::testEdgeUnregister()
     QVERIFY(showDesktopSpy.isValid());
 
     //trigger the edge
-    KWin::Cursor::setPos(triggerPos);
+    KWin::Cursors::self()->mouse()->setPos(triggerPos);
     QCOMPARE(showDesktopSpy.count(), 1);
 
     //reset
-    KWin::Cursor::setPos(500,500);
+    KWin::Cursors::self()->mouse()->setPos(500,500);
     workspace()->slotToggleShowDesktop();
     showDesktopSpy.clear();
 
     //trigger again, to show that retriggering works
-    KWin::Cursor::setPos(triggerPos);
+    KWin::Cursors::self()->mouse()->setPos(triggerPos);
     QCOMPARE(showDesktopSpy.count(), 1);
 
     //reset
-    KWin::Cursor::setPos(500,500);
+    KWin::Cursors::self()->mouse()->setPos(500,500);
     workspace()->slotToggleShowDesktop();
     showDesktopSpy.clear();
 
     //make the script unregister the edge
     configGroup.writeEntry("mode", "unregister");
     triggerConfigReload();
-    KWin::Cursor::setPos(triggerPos);
+    KWin::Cursors::self()->mouse()->setPos(triggerPos);
     QCOMPARE(showDesktopSpy.count(), 0); //not triggered
 
     //force the script to unregister a non-registered edge to prove it doesn't explode

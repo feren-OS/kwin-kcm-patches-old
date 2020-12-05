@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2012 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2012 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_VIRTUAL_DESKTOPS_H
 #define KWIN_VIRTUAL_DESKTOPS_H
 // KWin
@@ -36,12 +25,9 @@ class KLocalizedString;
 class NETRootInfo;
 class QAction;
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class PlasmaVirtualDesktopManagementInterface;
-}
 }
 
 namespace KWin {
@@ -164,7 +150,7 @@ public:
     /**
      * @internal, for Wayland case
      */
-    void setVirtualDesktopManagement(KWayland::Server::PlasmaVirtualDesktopManagementInterface *management);
+    void setVirtualDesktopManagement(KWaylandServer::PlasmaVirtualDesktopManagementInterface *management);
     /**
      * @internal
      */
@@ -492,7 +478,7 @@ private:
     VirtualDesktopGrid m_grid;
     // TODO: QPointer
     NETRootInfo *m_rootInfo;
-    KWayland::Server::PlasmaVirtualDesktopManagementInterface *m_virtualDesktopManagement = nullptr;
+    KWaylandServer::PlasmaVirtualDesktopManagementInterface *m_virtualDesktopManagement = nullptr;
     KSharedConfig::Ptr m_config;
 
     KWIN_SINGLETON_VARIABLE(VirtualDesktopManager, s_manager)

@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "input_event.h"
 
 namespace KWin
@@ -63,6 +52,19 @@ SwitchEvent::SwitchEvent(State state, quint32 timestamp, quint64 timestampMicros
     , m_device(device)
 {
     setTimestamp(timestamp);
+}
+
+TabletEvent::TabletEvent(Type t, const QPointF &pos, const QPointF &globalPos,
+                 int device, int pointerType, qreal pressure, int xTilt, int yTilt,
+                 qreal tangentialPressure, qreal rotation, int z,
+                 Qt::KeyboardModifiers keyState, qint64 uniqueID,
+                 Qt::MouseButton button, Qt::MouseButtons buttons, InputRedirection::TabletToolType toolType, const QVector<InputRedirection::Capability> &capabilities, quint64 serialId, const QString &tabletSysName)
+    : QTabletEvent(t, pos, globalPos, device, pointerType, pressure, xTilt, yTilt, tangentialPressure, rotation, z, keyState, uniqueID, button, buttons)
+    , m_toolType(toolType)
+    , m_capabilities(capabilities)
+    , m_serialId(serialId)
+    , m_tabletSysName(tabletSysName)
+{
 }
 
 }

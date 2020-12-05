@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "kwin_wayland_test.h"
 
@@ -26,7 +15,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "effects.h"
 #include "platform.h"
 #include "scene.h"
-#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
@@ -48,7 +36,6 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
-    void testMaximizeRestore_data();
     void testMaximizeRestore();
 };
 
@@ -57,9 +44,8 @@ void MaximizeAnimationTest::initTestCase()
     qputenv("XDG_DATA_DIRS", QCoreApplication::applicationDirPath().toUtf8());
 
     qRegisterMetaType<KWin::AbstractClient *>();
-    qRegisterMetaType<KWin::XdgShellClient *>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
 
@@ -76,7 +62,7 @@ void MaximizeAnimationTest::initTestCase()
     qputenv("KWIN_EFFECTS_FORCE_ANIMATIONS", QByteArrayLiteral("1"));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     waylandServer()->initWorkspace();
 }
 
@@ -95,14 +81,6 @@ void MaximizeAnimationTest::cleanup()
     Test::destroyWaylandConnection();
 }
 
-void MaximizeAnimationTest::testMaximizeRestore_data()
-{
-    QTest::addColumn<Test::XdgShellSurfaceType>("type");
-
-    QTest::newRow("xdgShellV6") << Test::XdgShellSurfaceType::XdgShellV6;
-    QTest::newRow("xdgWmBase")  << Test::XdgShellSurfaceType::XdgShellStable;
-}
-
 void MaximizeAnimationTest::testMaximizeRestore()
 {
     // This test verifies that the maximize effect animates a client
@@ -114,8 +92,7 @@ void MaximizeAnimationTest::testMaximizeRestore()
     QScopedPointer<Surface> surface(Test::createSurface());
     QVERIFY(!surface.isNull());
 
-    QFETCH(Test::XdgShellSurfaceType, type);
-    QScopedPointer<XdgShellSurface> shellSurface(createXdgShellSurface(type, surface.data(), nullptr, Test::CreationSetup::CreateOnly));
+    QScopedPointer<XdgShellSurface> shellSurface(Test::createXdgShellStableSurface(surface.data(), nullptr, Test::CreationSetup::CreateOnly));
 
     // Wait for the initial configure event.
     XdgShellSurface::States states;
@@ -133,7 +110,7 @@ void MaximizeAnimationTest::testMaximizeRestore()
 
     // Draw contents of the surface.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
-    XdgShellClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *client = Test::renderAndWaitForShown(surface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(client);
     QVERIFY(client->isActive());
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeRestore);
@@ -157,9 +134,9 @@ void MaximizeAnimationTest::testMaximizeRestore()
     QVERIFY(!effect->isActive());
 
     // Maximize the client.
-    QSignalSpy geometryChangedSpy(client, &XdgShellClient::geometryChanged);
-    QVERIFY(geometryChangedSpy.isValid());
-    QSignalSpy maximizeChangedSpy(client, qOverload<AbstractClient *, bool, bool>(&XdgShellClient::clientMaximizedStateChanged));
+    QSignalSpy frameGeometryChangedSpy(client, &AbstractClient::frameGeometryChanged);
+    QVERIFY(frameGeometryChangedSpy.isValid());
+    QSignalSpy maximizeChangedSpy(client, qOverload<AbstractClient *, bool, bool>(&AbstractClient::clientMaximizedStateChanged));
     QVERIFY(maximizeChangedSpy.isValid());
 
     workspace()->slotWindowMaximize();
@@ -173,8 +150,8 @@ void MaximizeAnimationTest::testMaximizeRestore()
     // Draw contents of the maximized client.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(1280, 1024), Qt::red);
-    QVERIFY(geometryChangedSpy.wait());
-    QCOMPARE(geometryChangedSpy.count(), 2);
+    QVERIFY(frameGeometryChangedSpy.wait());
+    QCOMPARE(frameGeometryChangedSpy.count(), 1);
     QCOMPARE(maximizeChangedSpy.count(), 1);
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeFull);
     QVERIFY(effect->isActive());
@@ -194,8 +171,8 @@ void MaximizeAnimationTest::testMaximizeRestore()
     // Draw contents of the restored client.
     shellSurface->ackConfigure(configureRequestedSpy.last().at(2).value<quint32>());
     Test::render(surface.data(), QSize(100, 50), Qt::blue);
-    QVERIFY(geometryChangedSpy.wait());
-    QCOMPARE(geometryChangedSpy.count(), 4);
+    QVERIFY(frameGeometryChangedSpy.wait());
+    QCOMPARE(frameGeometryChangedSpy.count(), 2);
     QCOMPARE(maximizeChangedSpy.count(), 2);
     QCOMPARE(client->maximizeMode(), MaximizeMode::MaximizeRestore);
     QVERIFY(effect->isActive());

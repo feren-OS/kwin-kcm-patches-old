@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "sm.h"
 
@@ -81,46 +70,16 @@ static NET::WindowType txtToWindowType(const char* txt)
     return static_cast< NET::WindowType >(-2);   // undefined
 }
 
-void Workspace::saveState(QSessionManager &sm)
-{
-    bool sessionManagerIsKSMServer = QDBusConnection::sessionBus().interface()->isServiceRegistered("org.kde.ksmserver").value();
-
-    // If the session manager is ksmserver, save stacking
-    // order, active window, active desktop etc. in phase 1,
-    // as ksmserver assures no interaction will be done
-    // before the WM finishes phase 1. Saving in phase 2 is
-    // too late, as possible user interaction may change some things.
-    // Phase2 is still needed though (ICCCM 5.2)
-    KConfig *config = sessionConfig(sm.sessionId(), sm.sessionKey());
-    if (!sm.isPhase2()) {
-        KConfigGroup cg(config, "Session");
-        cg.writeEntry("AllowsInteraction", sm.allowsInteraction());
-        if (sessionManagerIsKSMServer)   // save stacking order etc. before "save file?" etc. dialogs change it
-            storeSession(config, SMSavePhase0);
-        config->markAsClean(); // don't write Phase #1 data to disk
-        sm.release(); // Qt doesn't automatically release in this case (bug?)
-        sm.requestPhase2();
-        return;
-    }
-    storeSession(config, sessionManagerIsKSMServer ? SMSavePhase2 : SMSavePhase2Full);
-    config->sync();
-
-    // inform the smserver on how to clean-up after us
-    const QString localFilePath = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QLatin1Char('/') + config->name();
-    if (QFile::exists(localFilePath)) { // expectable for the sync
-        sm.setDiscardCommand(QStringList() << QStringLiteral("rm") << localFilePath);
-    }
-}
-
-// Workspace
-
 /**
  * Stores the current session in the config file
  *
  * @see loadSessionInfo
  */
-void Workspace::storeSession(KConfig* config, SMSavePhase phase)
+void Workspace::storeSession(const QString &sessionName, SMSavePhase phase)
 {
+    qCDebug(KWIN_CORE) << "storing session" << sessionName << "in phase" << phase;
+    KConfig *config = sessionConfig(sessionName, QString());
+
     KConfigGroup cg(config, "Session");
     int count =  0;
     int active_client = -1;
@@ -160,6 +119,7 @@ void Workspace::storeSession(KConfig* config, SMSavePhase phase)
         cg.writeEntry("active", session_active_client);
         cg.writeEntry("desktop", VirtualDesktopManager::self()->current());
     }
+    config->sync(); // it previously did some "revert to defaults" stuff for phase1 I think
 }
 
 void Workspace::storeClient(KConfigGroup &cg, int num, X11Client *c)
@@ -235,12 +195,10 @@ void Workspace::storeSubSession(const QString &name, QSet<QByteArray> sessionIds
  *
  * @see storeSession
  */
-void Workspace::loadSessionInfo(const QString &key)
+void Workspace::loadSessionInfo(const QString &sessionName)
 {
-    // NOTICE: qApp->sessionKey() is outdated when this gets invoked
-    // the key parameter is cached from the application constructor.
     session.clear();
-    KConfigGroup cg(sessionConfig(qApp->sessionId(), key), "Session");
+    KConfigGroup cg(sessionConfig(sessionName, QString()), "Session");
     addSessionInfo(cg);
 }
 
@@ -385,6 +343,7 @@ void SessionManager::setState(uint state)
     }
 }
 
+// TODO should we rethink this now that we have dedicated start end end save methods?
 void SessionManager::setState(SessionState state)
 {
     if (state == m_sessionState) {
@@ -403,6 +362,21 @@ void SessionManager::setState(SessionState state)
     }
     m_sessionState = state;
     emit stateChanged();
+}
+
+void SessionManager::loadSession(const QString &name)
+{
+    emit loadSessionRequested(name);
+}
+
+void SessionManager::aboutToSaveSession(const QString &name)
+{
+    emit prepareSessionSaveRequested(name);
+}
+
+void SessionManager::finishSaveSession(const QString &name)
+{
+    emit finishSessionSaveRequested(name);
 }
 
 } // namespace

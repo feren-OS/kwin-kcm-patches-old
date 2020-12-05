@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 /*
 
@@ -43,7 +32,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "effects.h"
 #include "platform.h"
 #include "screens.h"
-#include "xdgshellclient.h"
 #include "virtualdesktops.h"
 #include "scripting/scripting.h"
 
@@ -327,7 +315,7 @@ void UserActionsMenu::init()
                 p->setProcessEnvironment(kwinApp()->processStartupEnvironment());
                 p->setProgram(QStringLiteral("kcmshell5"));
                 connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), p, &QProcess::deleteLater);
-                connect(p, &QProcess::errorOccurred, this, [p](QProcess::ProcessError e) {
+                connect(p, &QProcess::errorOccurred, this, [] (QProcess::ProcessError e) {
                     if (e == QProcess::FailedToStart) {
                         qCDebug(KWIN_CORE) << "Failed to start kcmshell5";
                     }
@@ -1050,21 +1038,21 @@ void Workspace::performWindowOperation(AbstractClient* c, Options::WindowOperati
     if (!c)
         return;
     if (op == Options::MoveOp || op == Options::UnrestrictedMoveOp)
-        Cursor::setPos(c->frameGeometry().center());
+        Cursors::self()->mouse()->setPos(c->frameGeometry().center());
     if (op == Options::ResizeOp || op == Options::UnrestrictedResizeOp)
-        Cursor::setPos(c->frameGeometry().bottomRight());
+        Cursors::self()->mouse()->setPos(c->frameGeometry().bottomRight());
     switch(op) {
     case Options::MoveOp:
-        c->performMouseCommand(Options::MouseMove, Cursor::pos());
+        c->performMouseCommand(Options::MouseMove, Cursors::self()->mouse()->pos());
         break;
     case Options::UnrestrictedMoveOp:
-        c->performMouseCommand(Options::MouseUnrestrictedMove, Cursor::pos());
+        c->performMouseCommand(Options::MouseUnrestrictedMove, Cursors::self()->mouse()->pos());
         break;
     case Options::ResizeOp:
-        c->performMouseCommand(Options::MouseResize, Cursor::pos());
+        c->performMouseCommand(Options::MouseResize, Cursors::self()->mouse()->pos());
         break;
     case Options::UnrestrictedResizeOp:
-        c->performMouseCommand(Options::MouseUnrestrictedResize, Cursor::pos());
+        c->performMouseCommand(Options::MouseUnrestrictedResize, Cursors::self()->mouse()->pos());
         break;
     case Options::CloseOp:
         QMetaObject::invokeMethod(c, "closeWindow", Qt::QueuedConnection);
@@ -1072,21 +1060,25 @@ void Workspace::performWindowOperation(AbstractClient* c, Options::WindowOperati
     case Options::MaximizeOp:
         c->maximize(c->maximizeMode() == MaximizeFull
                     ? MaximizeRestore : MaximizeFull);
+        takeActivity(c, ActivityFocus | ActivityRaise);
         break;
     case Options::HMaximizeOp:
         c->maximize(c->maximizeMode() ^ MaximizeHorizontal);
+        takeActivity(c, ActivityFocus | ActivityRaise);
         break;
     case Options::VMaximizeOp:
         c->maximize(c->maximizeMode() ^ MaximizeVertical);
+        takeActivity(c, ActivityFocus | ActivityRaise);
         break;
     case Options::RestoreOp:
         c->maximize(MaximizeRestore);
+        takeActivity(c, ActivityFocus | ActivityRaise);
         break;
     case Options::MinimizeOp:
         c->minimize();
         break;
     case Options::ShadeOp:
-        c->performMouseCommand(Options::MouseShade, Cursor::pos());
+        c->performMouseCommand(Options::MouseShade, Cursors::self()->mouse()->pos());
         break;
     case Options::OnAllDesktopsOp:
         c->setOnAllDesktops(!c->isOnAllDesktops());
@@ -1114,7 +1106,7 @@ void Workspace::performWindowOperation(AbstractClient* c, Options::WindowOperati
         break;
     }
     case Options::OperationsOp:
-        c->performMouseCommand(Options::MouseShade, Cursor::pos());
+        c->performMouseCommand(Options::MouseShade, Cursors::self()->mouse()->pos());
         break;
     case Options::WindowRulesOp:
         RuleBook::self()->edit(c, false);
@@ -1131,54 +1123,6 @@ void Workspace::performWindowOperation(AbstractClient* c, Options::WindowOperati
     case Options::NoOp:
         break;
     }
-}
-
-/**
- * Called by the decoration in the new API to determine what buttons the user has configured for
- * window tab dragging and the operations menu.
- */
-Options::WindowOperation X11Client::mouseButtonToWindowOperation(Qt::MouseButtons button)
-{
-    Options::MouseCommand com = Options::MouseNothing;
-    bool active = isActive();
-    if (!wantsInput())   // we cannot be active, use it anyway
-        active = true;
-
-    if (button == Qt::LeftButton)
-        com = active ? options->commandActiveTitlebar1() : options->commandInactiveTitlebar1();
-    else if (button == Qt::MidButton)
-        com = active ? options->commandActiveTitlebar2() : options->commandInactiveTitlebar2();
-    else if (button == Qt::RightButton)
-        com = active ? options->commandActiveTitlebar3() : options->commandInactiveTitlebar3();
-
-    if (com == Options::MouseOperationsMenu)
-        return Options::OperationsOp;
-    return Options::NoOp;
-}
-
-/**
- * Performs a mouse command on this client (see options.h)
- */
-bool X11Client::performMouseCommand(Options::MouseCommand command, const QPoint &globalPos)
-{
-    bool replay = false;
-    switch(command) {
-    case Options::MouseShade :
-        toggleShade();
-        cancelShadeHoverTimer();
-        break;
-    case Options::MouseSetShade:
-        setShade(ShadeNormal);
-        cancelShadeHoverTimer();
-        break;
-    case Options::MouseUnsetShade:
-        setShade(ShadeNone);
-        cancelShadeHoverTimer();
-        break;
-    default:
-        return AbstractClient::performMouseCommand(command, globalPos);
-    }
-    return replay;
 }
 
 void Workspace::slotActivateAttentionWindow()

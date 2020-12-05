@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright © 2019 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "linux_dmabuf.h"
 
 #include "wayland_server.h"
@@ -30,7 +19,7 @@ DmabufBuffer::DmabufBuffer(const QVector<Plane> &planes,
                            uint32_t format,
                            const QSize &size,
                            Flags flags)
-    : KWayland::Server::LinuxDmabufUnstableV1Buffer(format, size)
+    : KWaylandServer::LinuxDmabufUnstableV1Buffer(format, size)
     , m_planes(planes)
     , m_format(format)
     , m_size(size)
@@ -53,7 +42,7 @@ DmabufBuffer::~DmabufBuffer()
 }
 
 LinuxDmabuf::LinuxDmabuf()
-    : KWayland::Server::LinuxDmabufUnstableV1Interface::Impl()
+    : KWaylandServer::LinuxDmabufUnstableV1Interface::Impl()
 {
     Q_ASSERT(waylandServer());
     waylandServer()->linuxDmabuf()->setImpl(this);
@@ -64,10 +53,10 @@ LinuxDmabuf::~LinuxDmabuf()
     waylandServer()->linuxDmabuf()->setImpl(nullptr);
 }
 
-using Plane = KWayland::Server::LinuxDmabufUnstableV1Interface::Plane;
-using Flags = KWayland::Server::LinuxDmabufUnstableV1Interface::Flags;
+using Plane = KWaylandServer::LinuxDmabufUnstableV1Interface::Plane;
+using Flags = KWaylandServer::LinuxDmabufUnstableV1Interface::Flags;
 
-KWayland::Server::LinuxDmabufUnstableV1Buffer* LinuxDmabuf::importBuffer(const QVector<Plane> &planes,
+KWaylandServer::LinuxDmabufUnstableV1Buffer* LinuxDmabuf::importBuffer(const QVector<Plane> &planes,
                                                                          uint32_t format,
                                                                          const QSize &size,
                                                                          Flags flags)

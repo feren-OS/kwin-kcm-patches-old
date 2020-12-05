@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "platform.h"
 #include "x11client.h"
@@ -25,13 +14,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "xdgshellclient.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/plasmawindowmanagement.h>
 #include <KWayland/Client/surface.h>
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/seat_interface.h>
 //screenlocker
 #include <KScreenLocker/KsldApp>
 
@@ -68,16 +56,15 @@ private:
 
 void PlasmaWindowTest::initTestCase()
 {
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -93,7 +80,7 @@ void PlasmaWindowTest::init()
     m_compositor = Test::waylandCompositor();
 
     screens()->setCurrent(0);
-    Cursor::setPos(QPoint(640, 512));
+    Cursors::self()->mouse()->setPos(QPoint(640, 512));
 }
 
 void PlasmaWindowTest::cleanup()
@@ -245,7 +232,7 @@ void PlasmaWindowTest::testPopupWindowNoPlasmaWindow()
     // first create the parent window
     QScopedPointer<Surface> parentSurface(Test::createSurface());
     QScopedPointer<XdgShellSurface> parentShellSurface(Test::createXdgShellStableSurface(parentSurface.data()));
-    XdgShellClient *parentClient = Test::renderAndWaitForShown(parentSurface.data(), QSize(100, 50), Qt::blue);
+    AbstractClient *parentClient = Test::renderAndWaitForShown(parentSurface.data(), QSize(100, 50), Qt::blue);
     QVERIFY(parentClient);
     QVERIFY(plasmaWindowCreatedSpy.wait());
     QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
@@ -256,7 +243,7 @@ void PlasmaWindowTest::testPopupWindowNoPlasmaWindow()
     positioner.setGravity(Qt::BottomEdge | Qt::RightEdge);
     QScopedPointer<Surface> popupSurface(Test::createSurface());
     QScopedPointer<XdgShellPopup> popupShellSurface(Test::createXdgShellStablePopup(popupSurface.data(), parentShellSurface.data(), positioner));
-    XdgShellClient *popupClient = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::blue);
+    AbstractClient *popupClient = Test::renderAndWaitForShown(popupSurface.data(), positioner.initialSize(), Qt::blue);
     QVERIFY(popupClient);
     QVERIFY(!plasmaWindowCreatedSpy.wait(100));
     QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
@@ -275,12 +262,12 @@ void PlasmaWindowTest::testLockScreenNoPlasmaWindow()
     QVERIFY(plasmaWindowCreatedSpy.isValid());
 
     // this time we use a QSignalSpy on XdgShellClient as it'a a little bit more complex setup
-    QSignalSpy clientAddedSpy(waylandServer(), &WaylandServer::shellClientAdded);
+    QSignalSpy clientAddedSpy(workspace(), &Workspace::clientAdded);
     QVERIFY(clientAddedSpy.isValid());
     // lock
     ScreenLocker::KSldApp::self()->lock(ScreenLocker::EstablishLock::Immediate);
     QVERIFY(clientAddedSpy.wait());
-    QVERIFY(clientAddedSpy.first().first().value<XdgShellClient *>()->isLockScreen());
+    QVERIFY(clientAddedSpy.first().first().value<AbstractClient *>()->isLockScreen());
     // should not be sent to the client
     QVERIFY(plasmaWindowCreatedSpy.isEmpty());
     QVERIFY(!plasmaWindowCreatedSpy.wait());

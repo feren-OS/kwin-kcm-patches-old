@@ -1,27 +1,16 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright 2019 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_ABSTRACT_WAYLAND_OUTPUT_H
 #define KWIN_ABSTRACT_WAYLAND_OUTPUT_H
 
 #include "abstract_output.h"
-#include <utils.h>
+#include "utils.h"
 #include <kwin_export.h>
 
 #include <QObject>
@@ -31,19 +20,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QSize>
 #include <QVector>
 
-#include <KWayland/Server/output_interface.h>
-#include <KWayland/Server/outputdevice_interface.h>
+#include <KWaylandServer/output_interface.h>
+#include <KWaylandServer/outputdevice_interface.h>
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class OutputInterface;
 class OutputDeviceInterface;
 class OutputChangeSet;
 class OutputManagementInterface;
-class XdgOutputInterface;
-}
+class XdgOutputV1Interface;
 }
 
 namespace KWin
@@ -73,7 +59,11 @@ public:
     QString name() const override;
     QByteArray uuid() const override;
 
-    QSize pixelSize() const;
+    QSize modeSize() const;
+
+    // TODO: The name is ambiguous. Rename this function.
+    QSize pixelSize() const override;
+
     qreal scale() const override;
 
     /**
@@ -81,6 +71,17 @@ public:
      */
     QRect geometry() const override;
     QSize physicalSize() const override;
+
+    /**
+     * Returns the orientation of this output.
+     *
+     * - Flipped along the vertical axis is landscape + inv. portrait.
+     * - Rotated 90° and flipped along the horizontal axis is portrait + inv. landscape
+     * - Rotated 180° and flipped along the vertical axis is inv. landscape + inv. portrait
+     * - Rotated 270° and flipped along the horizontal axis is inv. portrait + inv. landscape +
+     *   portrait
+     */
+    Transform transform() const;
 
     /**
      * Current refresh rate in 1/ms.
@@ -94,9 +95,9 @@ public:
     void setGlobalPos(const QPoint &pos);
     void setScale(qreal scale);
 
-    void applyChanges(const KWayland::Server::OutputChangeSet *changeSet) override;
+    void applyChanges(const KWaylandServer::OutputChangeSet *changeSet) override;
 
-    QPointer<KWayland::Server::OutputInterface> waylandOutput() const {
+    QPointer<KWaylandServer::OutputInterface> waylandOutput() const {
         return m_waylandOutput;
     }
 
@@ -109,38 +110,41 @@ public:
      */
     void setEnabled(bool enable) override;
 
+    QString description() const;
+
+    /**
+     * Returns a matrix that can translate into the display's coordinates system
+     */
+    static QMatrix4x4 logicalToNativeMatrix(const QRect &rect, qreal scale, Transform transform);
+
 Q_SIGNALS:
     void modeChanged();
+    void outputChange(const QRegion &damagedRegion);
 
 protected:
     void initInterfaces(const QString &model, const QString &manufacturer,
                         const QByteArray &uuid, const QSize &physicalSize,
-                        const QVector<KWayland::Server::OutputDeviceInterface::Mode> &modes);
-
-    QPointer<KWayland::Server::XdgOutputInterface> xdgOutput() const {
-        return m_xdgOutput;
-    }
-
-    QPointer<KWayland::Server::OutputDeviceInterface> waylandOutputDevice() const {
-        return m_waylandOutputDevice;
-    }
+                        const QVector<KWaylandServer::OutputDeviceInterface::Mode> &modes);
 
     QPoint globalPos() const;
 
     bool internal() const {
         return m_internal;
     }
+    void setName(const QString &name) {
+        m_name = name;
+    }
     void setInternal(bool set) {
         m_internal = set;
     }
     void setDpmsSupported(bool set) {
-        m_supportsDpms = set;
+        m_waylandOutput->setDpmsSupported(set);
     }
 
     virtual void updateEnablement(bool enable) {
         Q_UNUSED(enable);
     }
-    virtual void updateDpms(KWayland::Server::OutputInterface::DpmsMode mode) {
+    virtual void updateDpms(KWaylandServer::OutputInterface::DpmsMode mode) {
         Q_UNUSED(mode);
     }
     virtual void updateMode(int modeIndex) {
@@ -155,31 +159,16 @@ protected:
 
     QSize orientateSize(const QSize &size) const;
 
-    /**
-     * Returns the orientation of this output.
-     *
-     * - Flipped along the vertical axis is landscape + inv. portrait.
-     * - Rotated 90° and flipped along the horizontal axis is portrait + inv. landscape
-     * - Rotated 180° and flipped along the vertical axis is inv. landscape + inv. portrait
-     * - Rotated 270° and flipped along the horizontal axis is inv. portrait + inv. landscape +
-     *   portrait
-     */
-    Transform transform() const;
-
 private:
-    void createWaylandOutput();
-    void createXdgOutput();
+    void setTransform(KWaylandServer::OutputDeviceInterface::Transform transform);
 
-    void setTransform(KWayland::Server::OutputDeviceInterface::Transform transform);
+    KWaylandServer::OutputInterface *m_waylandOutput;
+    KWaylandServer::XdgOutputV1Interface *m_xdgOutputV1;
+    KWaylandServer::OutputDeviceInterface *m_waylandOutputDevice;
+    KWaylandServer::OutputInterface::DpmsMode m_dpms = KWaylandServer::OutputInterface::DpmsMode::On;
 
-    QPointer<KWayland::Server::OutputInterface> m_waylandOutput;
-    QPointer<KWayland::Server::XdgOutputInterface> m_xdgOutput;
-    QPointer<KWayland::Server::OutputDeviceInterface> m_waylandOutputDevice;
-
-    KWayland::Server::OutputInterface::DpmsMode m_dpms = KWayland::Server::OutputInterface::DpmsMode::On;
-
+    QString m_name;
     bool m_internal = false;
-    bool m_supportsDpms = false;
 };
 
 }

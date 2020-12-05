@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2010 Rohan Prabhu <rohan@rohanprabhu.com>
-Copyright (C) 2012 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2010 Rohan Prabhu <rohan@rohanprabhu.com>
+    SPDX-FileCopyrightText: 2012 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_SCRIPTING_WORKSPACE_WRAPPER_H
 #define KWIN_SCRIPTING_WORKSPACE_WRAPPER_H
@@ -70,7 +59,7 @@ class WorkspaceWrapper : public QObject
     Q_PROPERTY(int displayHeight READ displayHeight)
     Q_PROPERTY(int activeScreen READ activeScreen)
     Q_PROPERTY(int numScreens READ numScreens NOTIFY numberScreensChanged)
-    Q_PROPERTY(QString currentActivity READ currentActivity NOTIFY currentActivityChanged)
+    Q_PROPERTY(QString currentActivity READ currentActivity WRITE setCurrentActivity NOTIFY currentActivityChanged)
     Q_PROPERTY(QStringList activities READ activityList NOTIFY activitiesChanged)
     /**
      * The bounding size of all screens combined. Overlapping areas
@@ -208,6 +197,7 @@ rettype getter() const; \
 void setter( rettype val );
     GETTERSETTERDEF(int, numberOfDesktops, setNumberOfDesktops)
     GETTERSETTERDEF(int, currentDesktop, setCurrentDesktop)
+    GETTERSETTERDEF(QString, currentActivity, setCurrentActivity)
     GETTERSETTERDEF(KWin::AbstractClient*, activeClient, setActiveClient)
 #undef GETTERSETTERDEF
     QSize desktopGridSize() const;
@@ -221,7 +211,6 @@ void setter( rettype val );
     QSize displaySize() const;
     int activeScreen() const;
     int numScreens() const;
-    QString currentActivity() const;
     QStringList activityList() const;
     QSize virtualScreenSize() const;
     QRect virtualScreenGeometry() const;
@@ -255,6 +244,17 @@ void setter( rettype val );
      * Returns the name for the given @p desktop.
      */
     Q_SCRIPTABLE QString desktopName(int desktop) const;
+    /**
+     * Create a new virtual desktop at the requested position.
+     * @param position The position of the desktop. It should be in range [0, count].
+     * @param name The name for the new desktop, if empty the default name will be used.
+     */
+    Q_SCRIPTABLE void createDesktop(int position, const QString &name) const;
+    /**
+     * Remove the virtual desktop at the requested position
+     * @param position The position of the desktop to be removed. It should be in range [0, count - 1].
+     */
+    Q_SCRIPTABLE void removeDesktop(int position) const;
     /**
      * Provides support information about the currently running KWin instance.
      */
@@ -351,8 +351,7 @@ public Q_SLOTS:
     void hideOutline();
 
 private Q_SLOTS:
-    void setupAbstractClientConnections(AbstractClient *client);
-    void setupClientConnections(X11Client *client);
+    void setupClientConnections(AbstractClient *client);
 };
 
 class QtScriptWorkspaceWrapper : public WorkspaceWrapper

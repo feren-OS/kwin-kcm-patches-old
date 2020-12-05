@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "egl_gbm_backend.h"
 // kwin
 #include "composite.h"
@@ -114,16 +103,14 @@ bool EglGbmBackend::initRenderingContext()
 {
     initBufferConfigs();
 
-    const char* eglExtensionsCString = eglQueryString(eglDisplay(), EGL_EXTENSIONS);
-    const QList<QByteArray> extensions = QByteArray::fromRawData(eglExtensionsCString, qstrlen(eglExtensionsCString)).split(' ');
-    if (!extensions.contains(QByteArrayLiteral("EGL_KHR_surfaceless_context"))) {
+    if (!supportsSurfacelessContext()) {
+        qCWarning(KWIN_VIRTUAL) << "EGL_KHR_surfaceless_context extension is unavailable";
         return false;
     }
 
     if (!createContext()) {
         return false;
     }
-    setSurfaceLessContext(true);
 
     return makeCurrent();
 }
@@ -190,11 +177,11 @@ QRegion EglGbmBackend::prepareRenderingFrame()
 static void convertFromGLImage(QImage &img, int w, int h)
 {
     // from QtOpenGL/qgl.cpp
-    // Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
+    // SPDX-FileCopyrightText: 2010 Nokia Corporation and /or its subsidiary(-ies)
     // see https://github.com/qt/qtbase/blob/dev/src/opengl/qgl.cpp
     if (QSysInfo::ByteOrder == QSysInfo::BigEndian) {
         // OpenGL gives RGBA; Qt wants ARGB
-        uint *p = (uint*)img.bits();
+        uint *p = reinterpret_cast<uint *>(img.bits());
         uint *end = p + w * h;
         while (p < end) {
             uint a = *p << 24;
@@ -204,7 +191,7 @@ static void convertFromGLImage(QImage &img, int w, int h)
     } else {
         // OpenGL gives ABGR (i.e. RGBA backwards); Qt wants ARGB
         for (int y = 0; y < h; y++) {
-            uint *q = (uint*)img.scanLine(y);
+            uint *q = reinterpret_cast<uint*>(img.scanLine(y));
             for (int x = 0; x < w; ++x) {
                 const uint pixel = *q;
                 *q = ((pixel << 16) & 0xff0000) | ((pixel >> 16) & 0xff)

@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
-Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_ABSTRACT_CLIENT_H
 #define KWIN_ABSTRACT_CLIENT_H
 
@@ -31,12 +20,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QElapsedTimer>
 #include <QPointer>
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class PlasmaWindowInterface;
-}
 }
 
 namespace KDecoration2
@@ -220,10 +206,18 @@ class KWIN_EXPORT AbstractClient : public Toplevel
     Q_PROPERTY(bool modal READ isModal NOTIFY modalChanged)
 
     /**
-     * The geometry of this Client. Be aware that depending on resize mode the geometryChanged signal
-     * might be emitted at each resize step or only at the end of the resize operation.
+     * The geometry of this Client. Be aware that depending on resize mode the frameGeometryChanged
+     * signal might be emitted at each resize step or only at the end of the resize operation.
+     *
+     * @deprecated Use frameGeometry
      */
     Q_PROPERTY(QRect geometry READ frameGeometry WRITE setFrameGeometry)
+
+    /**
+     * The geometry of this Client. Be aware that depending on resize mode the frameGeometryChanged
+     * signal might be emitted at each resize step or only at the end of the resize operation.
+     */
+    Q_PROPERTY(QRect frameGeometry READ frameGeometry WRITE setFrameGeometry)
 
     /**
      * Whether the Client is currently being moved by the user.
@@ -353,6 +347,7 @@ public:
         return m_icon;
     }
 
+    bool isZombie() const;
     bool isActive() const {
         return m_active;
     }
@@ -410,14 +405,15 @@ public:
      * @see captionNormal
      */
     virtual QString captionSuffix() const = 0;
+    virtual bool isPlaceable() const;
     virtual bool isCloseable() const = 0;
     // TODO: remove boolean trap
     virtual bool isShown(bool shaded_is_shown) const = 0;
     virtual bool isHiddenInternal() const = 0;
     // TODO: remove boolean trap
     virtual void hideClient(bool hide) = 0;
-    virtual bool isFullScreenable() const = 0;
-    virtual bool isFullScreen() const = 0;
+    virtual bool isFullScreenable() const;
+    virtual bool isFullScreen() const;
     // TODO: remove boolean trap
     virtual AbstractClient *findModal(bool allow_itself = false) = 0;
     virtual bool isTransient() const;
@@ -440,6 +436,7 @@ public:
      */
     virtual bool hasTransient(const AbstractClient* c, bool indirect) const;
     const QList<AbstractClient*>& transients() const; // Is not indirect
+    virtual void addTransient(AbstractClient *client);
     virtual void removeTransient(AbstractClient* cl);
     virtual QList<AbstractClient*> mainClients() const; // Call once before loop , is not indirect
     QList<AbstractClient*> allMainClients() const; // Call once before loop , is indirect
@@ -455,7 +452,7 @@ public:
         return _shortcut;
     }
     void setShortcut(const QString &cut);
-    virtual bool performMouseCommand(Options::MouseCommand, const QPoint &globalPos);
+    bool performMouseCommand(Options::MouseCommand, const QPoint &globalPos);
     void setOnAllDesktops(bool set);
     void setDesktop(int);
     void enterDesktop(VirtualDesktop *desktop);
@@ -484,28 +481,20 @@ public:
     bool isMinimized() const {
         return m_minimized;
     }
-    virtual void setFullScreen(bool set, bool user = true) = 0;
+    virtual void setFullScreen(bool set, bool user = true);
 
     virtual void setClientShown(bool shown);
 
-    virtual QRect geometryRestore() const = 0;
-    /**
-     * The currently applied maximize mode
-     */
-    virtual MaximizeMode maximizeMode() const = 0;
-    /**
-     * The maximise mode requested by the server.
-     * For X this always matches maximizeMode, for wayland clients it
-     * is asynchronous
-     */
+    QRect geometryRestore() const;
+    virtual MaximizeMode maximizeMode() const;
     virtual MaximizeMode requestedMaximizeMode() const;
     void maximize(MaximizeMode);
     /**
      * Sets the maximization according to @p vertically and @p horizontally.
      */
     Q_INVOKABLE void setMaximize(bool vertically, bool horizontally);
-    virtual bool noBorder() const = 0;
-    virtual void setNoBorder(bool set) = 0;
+    virtual bool noBorder() const;
+    virtual void setNoBorder(bool set);
     virtual void blockActivityUpdates(bool b = true) = 0;
     QPalette palette() const;
     const Decoration::DecorationPalette *decorationPalette() const;
@@ -527,27 +516,20 @@ public:
     bool isShade() const {
         return shadeMode() == ShadeNormal;
     }
-    /**
-     * Default implementation returns @c ShadeNone
-     */
-    virtual ShadeMode shadeMode() const; // Prefer isShade()
+    ShadeMode shadeMode() const; // Prefer isShade()
     void setShade(bool set);
-    /**
-     * Default implementation does nothing
-     */
-    virtual void setShade(ShadeMode mode);
+    void setShade(ShadeMode mode);
+    void toggleShade();
+    void cancelShadeHoverTimer();
     /**
      * Whether the Client can be shaded. Default implementation returns @c false.
      */
     virtual bool isShadeable() const;
-    /**
-     * Returns whether the window is maximizable or not.
-     */
-    virtual bool isMaximizable() const = 0;
-    virtual bool isMinimizable() const = 0;
+    virtual bool isMaximizable() const;
+    virtual bool isMinimizable() const;
     virtual QRect iconGeometry() const;
-    virtual bool userCanSetFullScreen() const = 0;
-    virtual bool userCanSetNoBorder() const = 0;
+    virtual bool userCanSetFullScreen() const;
+    virtual bool userCanSetNoBorder() const;
     virtual void checkNoBorder();
     virtual void setOnActivities(QStringList newActivitiesList);
     virtual void setOnAllActivities(bool set) = 0;
@@ -558,7 +540,7 @@ public:
     void setupWindowRules(bool ignore_temporary);
     void evaluateWindowRules();
     virtual void applyWindowRules();
-    virtual void takeFocus() = 0;
+    virtual bool takeFocus() = 0;
     virtual bool wantsInput() const = 0;
     /**
      * Whether a dock window wants input.
@@ -624,36 +606,29 @@ public:
     Layer layer() const override;
     void updateLayer();
 
+    void placeIn(const QRect &area);
+
     enum ForceGeometry_t { NormalGeometrySet, ForceGeometrySet };
     virtual void move(int x, int y, ForceGeometry_t force = NormalGeometrySet);
     void move(const QPoint &p, ForceGeometry_t force = NormalGeometrySet);
-    virtual void resizeWithChecks(int w, int h, ForceGeometry_t force = NormalGeometrySet) = 0;
-    void resizeWithChecks(const QSize& s, ForceGeometry_t force = NormalGeometrySet);
+    virtual void resizeWithChecks(const QSize& s, ForceGeometry_t force = NormalGeometrySet) = 0;
     void keepInArea(QRect area, bool partial = false);
     virtual QSize minSize() const;
     virtual QSize maxSize() const;
-    virtual void setFrameGeometry(int x, int y, int w, int h, ForceGeometry_t force = NormalGeometrySet) = 0;
-    void setFrameGeometry(const QRect &rect, ForceGeometry_t force = NormalGeometrySet);
-    /// How to resize the window in order to obey constains (mainly aspect ratios)
-    enum Sizemode {
-        SizemodeAny,
-        SizemodeFixedW, ///< Try not to affect width
-        SizemodeFixedH, ///< Try not to affect height
-        SizemodeMax ///< Try not to make it larger in either direction
-    };
-    /**
-     * Calculates the appropriate frame size for the given client size @p wsize.
-     *
-     * @p wsize is adapted according to the window's size hints (minimum, maximum and incremental size changes).
-     *
-     * Default implementation returns the passed in @p wsize.
-     */
-    virtual QSize sizeForClientSize(const QSize &wsize, Sizemode mode = SizemodeAny, bool noframe = false) const;
+    virtual void setFrameGeometry(const QRect &rect, ForceGeometry_t force = NormalGeometrySet) = 0;
 
     /**
-     * Adjust the frame size @p frame according to the window's size hints.
+     * How to resize the window in order to obey constraints (mainly aspect ratios).
      */
-    QSize adjustedSize(const QSize&, Sizemode mode = SizemodeAny) const;
+    enum SizeMode {
+        SizeModeAny,
+        SizeModeFixedW, ///< Try not to affect width
+        SizeModeFixedH, ///< Try not to affect height
+        SizeModeMax ///< Try not to make it larger in either direction
+    };
+
+    virtual QSize constrainClientSize(const QSize &size, SizeMode mode = SizeModeAny) const;
+    QSize constrainFrameSize(const QSize &size, SizeMode mode = SizeModeAny) const;
     QSize adjustedSize() const;
 
     /**
@@ -712,6 +687,8 @@ public:
         return m_moveResize.cursor;
     }
 
+    virtual StrutRect strutRect(StrutArea area) const;
+    StrutRects strutRects() const;
     virtual bool hasStrut() const;
 
     void setModal(bool modal);
@@ -749,7 +726,7 @@ public:
     /**
      * TODO: fix boolean traps
      */
-    virtual void updateDecoration(bool check_workspace_pos, bool force = false) = 0;
+    virtual void updateDecoration(bool check_workspace_pos, bool force = false);
 
     /**
      * Returns whether the window provides context help or not. If it does,
@@ -783,14 +760,14 @@ public:
      * Sets the geometry of the virtual keyboard, The window may resize itself in order to make space for the keybaord
      * This geometry is in global coordinates
      */
-    void setVirtualKeyboardGeometry(const QRect &geo);
+    virtual void setVirtualKeyboardGeometry(const QRect &geo);
 
     /**
      * Restores the AbstractClient after it had been hidden due to show on screen edge functionality.
      * The AbstractClient also gets raised (e.g. Panel mode windows can cover) and the AbstractClient
      * gets informed in a window specific way that it is shown and raised again.
      */
-    virtual void showOnScreenEdge() = 0;
+    virtual void showOnScreenEdge();
 
     QByteArray desktopFileName() const {
         return m_desktopFileName;
@@ -802,6 +779,7 @@ public:
      * Implementing subclasses can perform a windowing system solution for terminating.
      */
     virtual void killWindow() = 0;
+    virtual void destroyClient() = 0;
 
     enum class SameApplicationCheck {
         RelaxedForActive = 1 << 0,
@@ -822,9 +800,10 @@ public:
     QString applicationMenuObjectPath() const {
         return m_applicationMenuObjectPath;
     }
-    QString colorScheme() const {
-        return m_colorScheme;
-    }
+
+    virtual QString preferredColorScheme() const;
+    QString colorScheme() const;
+    void setColorScheme(const QString &colorScheme);
 
     /**
      * Request showing the application menu bar
@@ -876,9 +855,16 @@ public:
     /**
      * Returns whether window rules can be applied to this client.
      *
-     * Default implementation returns @c true.
+     * Default implementation returns @c false.
      */
     virtual bool supportsWindowRules() const;
+
+    /**
+     * Return window management interface
+     */
+    KWaylandServer::PlasmaWindowInterface *windowManagementInterface() const {
+        return m_windowManagementInterface;
+    }
 
 public Q_SLOTS:
     virtual void closeWindow() = 0;
@@ -921,6 +907,7 @@ Q_SIGNALS:
     void shadeableChanged(bool);
     void maximizeableChanged(bool);
     void desktopFileNameChanged();
+    void applicationMenuChanged();
     void hasApplicationMenuChanged(bool);
     void applicationMenuActiveChanged(bool);
     void unresponsiveChanged(bool);
@@ -933,6 +920,8 @@ protected:
     void setIcon(const QIcon &icon);
     void startAutoRaise();
     void autoRaise();
+    bool isMostRecentlyRaised() const;
+    void markAsZombie();
     /**
      * Whether the window accepts focus.
      * The difference to wantsInput is that the implementation should not check rules and return
@@ -961,14 +950,19 @@ protected:
      */
     virtual void doSetKeepBelow();
     /**
+     * Called from setShade() once the shadeMode value got updated, but before the changed signal
+     * is emitted.
+     *
+     * Default implementation does nothing.
+     */
+    virtual void doSetShade(ShadeMode previousShadeMode);
+    /**
      * Called from setDeskop once the desktop value got updated, but before the changed signal
      * is emitted.
      *
      * Default implementation does nothing.
-     * @param desktop The new desktop the Client is on
-     * @param was_desk The desktop the Client was on before
      */
-    virtual void doSetDesktop(int desktop, int was_desk);
+    virtual void doSetDesktop();
     /**
      * Called from @ref minimize and @ref unminimize once the minimized value got updated, but before the
      * changed signal is emitted.
@@ -981,21 +975,19 @@ protected:
     virtual void doSetSkipTaskbar();
     virtual void doSetSkipPager();
     virtual void doSetSkipSwitcher();
+    virtual void doSetDemandsAttention();
+    virtual void doSetQuickTileMode();
 
     void setupWindowManagementInterface();
     void destroyWindowManagementInterface();
-
-    void updateColorScheme(QString path);
-    virtual void updateColorScheme() = 0;
-
+    void updateColorScheme();
     void setTransientFor(AbstractClient *transientFor);
-    virtual void addTransient(AbstractClient* cl);
     /**
      * Just removes the @p cl from the transients without any further checks.
      */
     void removeTransientFromList(AbstractClient* cl);
 
-    Layer belongsToLayer() const;
+    virtual Layer belongsToLayer() const;
     virtual bool belongsToDesktop() const;
     void invalidateLayer();
     bool isActiveFullScreen() const;
@@ -1015,18 +1007,14 @@ protected:
         m_quickTileMode = newMode;
     }
 
-    KWayland::Server::PlasmaWindowInterface *windowManagementInterface() const {
-        return m_windowManagementInterface;
-    }
-
     // geometry handling
     void checkOffscreenPosition(QRect *geom, const QRect &screenArea);
     int borderLeft() const;
     int borderRight() const;
     int borderTop() const;
     int borderBottom() const;
-    virtual void changeMaximize(bool horizontal, bool vertical, bool adjust) = 0;
-    virtual void setGeometryRestore(const QRect &geo) = 0;
+    virtual void changeMaximize(bool horizontal, bool vertical, bool adjust);
+    void setGeometryRestore(const QRect &rect);
 
     /**
      * Called from move after updating the geometry. Can be reimplemented to perform specific tasks.
@@ -1046,6 +1034,7 @@ protected:
     void setPendingGeometryUpdate(PendingGeometry_t update);
     QRect bufferGeometryBeforeUpdateBlocking() const;
     QRect frameGeometryBeforeUpdateBlocking() const;
+    QRect clientGeometryBeforeUpdateBlocking() const;
     void updateGeometryBeforeUpdateBlocking();
     /**
      * Schedules a repaint for the visibleRect before and after a
@@ -1135,6 +1124,7 @@ protected:
      * Base implementation returns @c true.
      */
     virtual bool doStartMoveResize();
+    virtual void doFinishMoveResize();
     void finishMoveResize(bool cancel);
     /**
      * Leaves the move resize mode.
@@ -1192,6 +1182,7 @@ protected:
     void setDecoration(KDecoration2::Decoration *decoration) {
         m_decoration.decoration = decoration;
     }
+    virtual void createDecoration(const QRect &oldGeometry);
     virtual void destroyDecoration();
     void startDecorationDoubleClickTimer();
     void invalidateDecorationDoubleClickTimer();
@@ -1219,6 +1210,18 @@ protected:
 
     bool tabTo(AbstractClient *other, bool behind, bool activate);
 
+    void startShadeHoverTimer();
+    void startShadeUnhoverTimer();
+
+    // The geometry that the client should be restored when the virtual keyboard closes
+    QRect keyboardGeometryRestore() const;
+    void setKeyboardGeometryRestore(const QRect &geom);
+
+    QRect m_virtualKeyboardGeometry;
+private Q_SLOTS:
+    void shadeHover();
+    void shadeUnhover();
+
 private:
     void handlePaletteChange();
     QSharedPointer<TabBox::TabBoxClientImpl> m_tabBoxClient;
@@ -1232,11 +1235,14 @@ private:
     bool m_skipSwitcher = false;
     QIcon m_icon;
     bool m_active = false;
+    bool m_zombie = false;
     bool m_keepAbove = false;
     bool m_keepBelow = false;
     bool m_demandsAttention = false;
     bool m_minimized = false;
     QTimer *m_autoRaiseTimer = nullptr;
+    QTimer *m_shadeHoverTimer = nullptr;
+    ShadeMode m_shadeMode = ShadeNone;
     QVector <VirtualDesktop *> m_desktops;
 
     QString m_colorScheme;
@@ -1244,7 +1250,7 @@ private:
     static QHash<QString, std::weak_ptr<Decoration::DecorationPalette>> s_palettes;
     static std::shared_ptr<Decoration::DecorationPalette> s_defaultPalette;
 
-    KWayland::Server::PlasmaWindowInterface *m_windowManagementInterface = nullptr;
+    KWaylandServer::PlasmaWindowInterface *m_windowManagementInterface = nullptr;
 
     AbstractClient *m_transientFor = nullptr;
     QList<AbstractClient*> m_transients;
@@ -1265,8 +1271,9 @@ private:
     QRect m_visibleRectBeforeGeometryUpdate;
     QRect m_bufferGeometryBeforeUpdateBlocking;
     QRect m_frameGeometryBeforeUpdateBlocking;
-    QRect m_virtualKeyboardGeometry;
+    QRect m_clientGeometryBeforeUpdateBlocking;
     QRect m_keyboardGeometryRestore;
+    QRect m_maximizeGeometryRestore;
 
     struct {
         bool enabled = false;
@@ -1323,16 +1330,6 @@ private:
 inline void AbstractClient::move(const QPoint& p, ForceGeometry_t force)
 {
     move(p.x(), p.y(), force);
-}
-
-inline void AbstractClient::resizeWithChecks(const QSize& s, AbstractClient::ForceGeometry_t force)
-{
-    resizeWithChecks(s.width(), s.height(), force);
-}
-
-inline void AbstractClient::setFrameGeometry(const QRect &rect, ForceGeometry_t force)
-{
-    setFrameGeometry(rect.x(), rect.y(), rect.width(), rect.height(), force);
 }
 
 inline const QList<AbstractClient*>& AbstractClient::transients() const

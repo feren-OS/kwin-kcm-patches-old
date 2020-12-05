@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "atoms.h"
 #include "x11client.h"
@@ -27,7 +16,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "deleted.h"
 #include "platform.h"
 #include "screens.h"
-#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "workspace.h"
 
@@ -48,6 +36,10 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
+    void testMinimumSize();
+    void testMaximumSize();
+    void testResizeIncrements();
+    void testResizeIncrementsNoBaseSize();
     void testTrimCaption_data();
     void testTrimCaption();
     void testFullscreenLayerWithActiveWaylandWindow();
@@ -57,21 +49,22 @@ private Q_SLOTS:
     void testCaptionWmName();
     void testCaptionMultipleWindows();
     void testFullscreenWindowGroups();
+    void testActivateFocusedWindow();
+    void testReentrantSetFrameGeometry();
 };
 
 void X11ClientTest::initTestCase()
 {
     qRegisterMetaType<KWin::Deleted*>();
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QVERIFY(KWin::Compositor::self());
     waylandServer()->initWorkspace();
 }
@@ -93,6 +86,378 @@ struct XcbConnectionDeleter
         xcb_disconnect(pointer);
     }
 };
+
+void X11ClientTest::testMinimumSize()
+{
+    // This test verifies that the minimum size constraint is correctly applied.
+
+    // Create an xcb window.
+    QScopedPointer<xcb_connection_t, XcbConnectionDeleter> c(xcb_connect(nullptr, nullptr));
+    QVERIFY(!xcb_connection_has_error(c.data()));
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_window_t w = xcb_generate_id(c.data());
+    xcb_create_window(c.data(), XCB_COPY_FROM_PARENT, w, rootWindow(),
+                      windowGeometry.x(),
+                      windowGeometry.y(),
+                      windowGeometry.width(),
+                      windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_size_hints_set_min_size(&hints, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_set_wm_normal_hints(c.data(), w, &hints);
+    xcb_map_window(c.data(), w);
+    xcb_flush(c.data());
+
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(windowCreatedSpy.isValid());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
+    QVERIFY(client);
+    QVERIFY(client->isDecorated());
+
+    QSignalSpy clientStartMoveResizedSpy(client, &AbstractClient::clientStartUserMovedResized);
+    QVERIFY(clientStartMoveResizedSpy.isValid());
+    QSignalSpy clientStepUserMovedResizedSpy(client, &AbstractClient::clientStepUserMovedResized);
+    QVERIFY(clientStepUserMovedResizedSpy.isValid());
+    QSignalSpy clientFinishUserMovedResizedSpy(client, &AbstractClient::clientFinishUserMovedResized);
+    QVERIFY(clientFinishUserMovedResizedSpy.isValid());
+
+    // Begin resize.
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+    workspace()->slotWindowResize();
+    QCOMPARE(workspace()->moveResizeClient(), client);
+    QCOMPARE(clientStartMoveResizedSpy.count(), 1);
+    QVERIFY(client->isResize());
+
+    const QPoint cursorPos = KWin::Cursors::self()->mouse()->pos();
+
+    client->keyPressEvent(Qt::Key_Left);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(-8, 0));
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 0);
+    QCOMPARE(client->clientSize().width(), 100);
+
+    client->keyPressEvent(Qt::Key_Right);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos);
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 0);
+    QCOMPARE(client->clientSize().width(), 100);
+
+    client->keyPressEvent(Qt::Key_Right);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 0));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize().width(), 108);
+
+    client->keyPressEvent(Qt::Key_Up);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, -8));
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize().height(), 200);
+
+    client->keyPressEvent(Qt::Key_Down);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 0));
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize().height(), 200);
+
+    client->keyPressEvent(Qt::Key_Down);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 8));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 2);
+    QCOMPARE(client->clientSize().height(), 208);
+
+    // Finish the resize operation.
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 0);
+    client->keyPressEvent(Qt::Key_Enter);
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 1);
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+
+    // Destroy the window.
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
+    QVERIFY(windowClosedSpy.isValid());
+    xcb_unmap_window(c.data(), w);
+    xcb_destroy_window(c.data(), w);
+    xcb_flush(c.data());
+    QVERIFY(windowClosedSpy.wait());
+    c.reset();
+}
+
+void X11ClientTest::testMaximumSize()
+{
+    // This test verifies that the maximum size constraint is correctly applied.
+
+    // Create an xcb window.
+    QScopedPointer<xcb_connection_t, XcbConnectionDeleter> c(xcb_connect(nullptr, nullptr));
+    QVERIFY(!xcb_connection_has_error(c.data()));
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_window_t w = xcb_generate_id(c.data());
+    xcb_create_window(c.data(), XCB_COPY_FROM_PARENT, w, rootWindow(),
+                      windowGeometry.x(),
+                      windowGeometry.y(),
+                      windowGeometry.width(),
+                      windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_size_hints_set_max_size(&hints, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_set_wm_normal_hints(c.data(), w, &hints);
+    xcb_map_window(c.data(), w);
+    xcb_flush(c.data());
+
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(windowCreatedSpy.isValid());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
+    QVERIFY(client);
+    QVERIFY(client->isDecorated());
+
+    QSignalSpy clientStartMoveResizedSpy(client, &AbstractClient::clientStartUserMovedResized);
+    QVERIFY(clientStartMoveResizedSpy.isValid());
+    QSignalSpy clientStepUserMovedResizedSpy(client, &AbstractClient::clientStepUserMovedResized);
+    QVERIFY(clientStepUserMovedResizedSpy.isValid());
+    QSignalSpy clientFinishUserMovedResizedSpy(client, &AbstractClient::clientFinishUserMovedResized);
+    QVERIFY(clientFinishUserMovedResizedSpy.isValid());
+
+    // Begin resize.
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+    workspace()->slotWindowResize();
+    QCOMPARE(workspace()->moveResizeClient(), client);
+    QCOMPARE(clientStartMoveResizedSpy.count(), 1);
+    QVERIFY(client->isResize());
+
+    const QPoint cursorPos = KWin::Cursors::self()->mouse()->pos();
+
+    client->keyPressEvent(Qt::Key_Right);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 0));
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 0);
+    QCOMPARE(client->clientSize().width(), 100);
+
+    client->keyPressEvent(Qt::Key_Left);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos);
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 0);
+    QCOMPARE(client->clientSize().width(), 100);
+
+    client->keyPressEvent(Qt::Key_Left);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(-8, 0));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize().width(), 92);
+
+    client->keyPressEvent(Qt::Key_Down);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(-8, 8));
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize().height(), 200);
+
+    client->keyPressEvent(Qt::Key_Up);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(-8, 0));
+    QVERIFY(!clientStepUserMovedResizedSpy.wait(1000));
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize().height(), 200);
+
+    client->keyPressEvent(Qt::Key_Up);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(-8, -8));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 2);
+    QCOMPARE(client->clientSize().height(), 192);
+
+    // Finish the resize operation.
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 0);
+    client->keyPressEvent(Qt::Key_Enter);
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 1);
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+
+    // Destroy the window.
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
+    QVERIFY(windowClosedSpy.isValid());
+    xcb_unmap_window(c.data(), w);
+    xcb_destroy_window(c.data(), w);
+    xcb_flush(c.data());
+    QVERIFY(windowClosedSpy.wait());
+    c.reset();
+}
+
+void X11ClientTest::testResizeIncrements()
+{
+    // This test verifies that the resize increments constraint is correctly applied.
+
+    // Create an xcb window.
+    QScopedPointer<xcb_connection_t, XcbConnectionDeleter> c(xcb_connect(nullptr, nullptr));
+    QVERIFY(!xcb_connection_has_error(c.data()));
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_window_t w = xcb_generate_id(c.data());
+    xcb_create_window(c.data(), XCB_COPY_FROM_PARENT, w, rootWindow(),
+                      windowGeometry.x(),
+                      windowGeometry.y(),
+                      windowGeometry.width(),
+                      windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_size_hints_set_base_size(&hints, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_size_hints_set_resize_inc(&hints, 3, 5);
+    xcb_icccm_set_wm_normal_hints(c.data(), w, &hints);
+    xcb_map_window(c.data(), w);
+    xcb_flush(c.data());
+
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(windowCreatedSpy.isValid());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
+    QVERIFY(client);
+    QVERIFY(client->isDecorated());
+
+    QSignalSpy clientStartMoveResizedSpy(client, &AbstractClient::clientStartUserMovedResized);
+    QVERIFY(clientStartMoveResizedSpy.isValid());
+    QSignalSpy clientStepUserMovedResizedSpy(client, &AbstractClient::clientStepUserMovedResized);
+    QVERIFY(clientStepUserMovedResizedSpy.isValid());
+    QSignalSpy clientFinishUserMovedResizedSpy(client, &AbstractClient::clientFinishUserMovedResized);
+    QVERIFY(clientFinishUserMovedResizedSpy.isValid());
+
+    // Begin resize.
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+    workspace()->slotWindowResize();
+    QCOMPARE(workspace()->moveResizeClient(), client);
+    QCOMPARE(clientStartMoveResizedSpy.count(), 1);
+    QVERIFY(client->isResize());
+
+    const QPoint cursorPos = KWin::Cursors::self()->mouse()->pos();
+
+    client->keyPressEvent(Qt::Key_Right);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 0));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize(), QSize(106, 200));
+
+    client->keyPressEvent(Qt::Key_Down);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 8));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 2);
+    QCOMPARE(client->clientSize(), QSize(106, 205));
+
+    // Finish the resize operation.
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 0);
+    client->keyPressEvent(Qt::Key_Enter);
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 1);
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+
+    // Destroy the window.
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
+    QVERIFY(windowClosedSpy.isValid());
+    xcb_unmap_window(c.data(), w);
+    xcb_destroy_window(c.data(), w);
+    xcb_flush(c.data());
+    QVERIFY(windowClosedSpy.wait());
+    c.reset();
+}
+
+void X11ClientTest::testResizeIncrementsNoBaseSize()
+{
+    // Create an xcb window.
+    QScopedPointer<xcb_connection_t, XcbConnectionDeleter> c(xcb_connect(nullptr, nullptr));
+    QVERIFY(!xcb_connection_has_error(c.data()));
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_window_t w = xcb_generate_id(c.data());
+    xcb_create_window(c.data(), XCB_COPY_FROM_PARENT, w, rootWindow(),
+                      windowGeometry.x(),
+                      windowGeometry.y(),
+                      windowGeometry.width(),
+                      windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_size_hints_set_min_size(&hints, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_size_hints_set_resize_inc(&hints, 3, 5);
+    xcb_icccm_set_wm_normal_hints(c.data(), w, &hints);
+    xcb_map_window(c.data(), w);
+    xcb_flush(c.data());
+
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(windowCreatedSpy.isValid());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client = windowCreatedSpy.last().first().value<X11Client *>();
+    QVERIFY(client);
+    QVERIFY(client->isDecorated());
+
+    QSignalSpy clientStartMoveResizedSpy(client, &AbstractClient::clientStartUserMovedResized);
+    QVERIFY(clientStartMoveResizedSpy.isValid());
+    QSignalSpy clientStepUserMovedResizedSpy(client, &AbstractClient::clientStepUserMovedResized);
+    QVERIFY(clientStepUserMovedResizedSpy.isValid());
+    QSignalSpy clientFinishUserMovedResizedSpy(client, &AbstractClient::clientFinishUserMovedResized);
+    QVERIFY(clientFinishUserMovedResizedSpy.isValid());
+
+    // Begin resize.
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+    workspace()->slotWindowResize();
+    QCOMPARE(workspace()->moveResizeClient(), client);
+    QCOMPARE(clientStartMoveResizedSpy.count(), 1);
+    QVERIFY(client->isResize());
+
+    const QPoint cursorPos = KWin::Cursors::self()->mouse()->pos();
+
+    client->keyPressEvent(Qt::Key_Right);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 0));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 1);
+    QCOMPARE(client->clientSize(), QSize(106, 200));
+
+    client->keyPressEvent(Qt::Key_Down);
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
+    QCOMPARE(KWin::Cursors::self()->mouse()->pos(), cursorPos + QPoint(8, 8));
+    QVERIFY(clientStepUserMovedResizedSpy.wait());
+    QCOMPARE(clientStepUserMovedResizedSpy.count(), 2);
+    QCOMPARE(client->clientSize(), QSize(106, 205));
+
+    // Finish the resize operation.
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 0);
+    client->keyPressEvent(Qt::Key_Enter);
+    QCOMPARE(clientFinishUserMovedResizedSpy.count(), 1);
+    QCOMPARE(workspace()->moveResizeClient(), nullptr);
+    QVERIFY(!client->isResize());
+
+    // Destroy the window.
+    QSignalSpy windowClosedSpy(client, &X11Client::windowClosed);
+    QVERIFY(windowClosedSpy.isValid());
+    xcb_unmap_window(c.data(), w);
+    xcb_destroy_window(c.data(), w);
+    xcb_flush(c.data());
+    QVERIFY(windowClosedSpy.wait());
+    c.reset();
+}
 
 void X11ClientTest::testTrimCaption_data()
 {
@@ -465,7 +830,8 @@ void X11ClientTest::testCaptionWmName()
     QVERIFY(clientAddedSpy.isValid());
 
     QProcess glxgears;
-    glxgears.start(QStringLiteral("glxgears"));
+    glxgears.setProgram(QStringLiteral("glxgears"));
+    glxgears.start();
     QVERIFY(glxgears.waitForStarted());
 
     QVERIFY(clientAddedSpy.wait());
@@ -624,6 +990,121 @@ void X11ClientTest::testFullscreenWindowGroups()
     // activating the fullscreen window again, should move it to active layer
     workspace()->activateClient(client);
     QTRY_COMPARE(client->layer(), ActiveLayer);
+}
+
+void X11ClientTest::testActivateFocusedWindow()
+{
+    // The window manager may call XSetInputFocus() on a window that already has focus, in which
+    // case no FocusIn event will be generated and the window won't be marked as active. This test
+    // verifies that we handle that subtle case properly.
+
+    QScopedPointer<xcb_connection_t, XcbConnectionDeleter> connection(xcb_connect(nullptr, nullptr));
+    QVERIFY(!xcb_connection_has_error(connection.data()));
+
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(windowCreatedSpy.isValid());
+
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+
+    // Create the first test window.
+    const xcb_window_t window1 = xcb_generate_id(connection.data());
+    xcb_create_window(connection.data(), XCB_COPY_FROM_PARENT, window1, rootWindow(),
+                      windowGeometry.x(), windowGeometry.y(),
+                      windowGeometry.width(), windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_icccm_set_wm_normal_hints(connection.data(), window1, &hints);
+    xcb_change_property(connection.data(), XCB_PROP_MODE_REPLACE, window1,
+                        atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &window1);
+    xcb_map_window(connection.data(), window1);
+    xcb_flush(connection.data());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client1 = windowCreatedSpy.first().first().value<X11Client *>();
+    QVERIFY(client1);
+    QCOMPARE(client1->windowId(), window1);
+    QCOMPARE(client1->isActive(), true);
+
+    // Create the second test window.
+    const xcb_window_t window2 = xcb_generate_id(connection.data());
+    xcb_create_window(connection.data(), XCB_COPY_FROM_PARENT, window2, rootWindow(),
+                      windowGeometry.x(), windowGeometry.y(),
+                      windowGeometry.width(), windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_icccm_set_wm_normal_hints(connection.data(), window2, &hints);
+    xcb_change_property(connection.data(), XCB_PROP_MODE_REPLACE, window2,
+                        atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &window2);
+    xcb_map_window(connection.data(), window2);
+    xcb_flush(connection.data());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client2 = windowCreatedSpy.last().first().value<X11Client *>();
+    QVERIFY(client2);
+    QCOMPARE(client2->windowId(), window2);
+    QCOMPARE(client2->isActive(), true);
+
+    // When the second test window is destroyed, the window manager will attempt to activate the
+    // next client in the focus chain, which is the first window.
+    xcb_set_input_focus(connection.data(), XCB_INPUT_FOCUS_POINTER_ROOT, window1, XCB_CURRENT_TIME);
+    xcb_destroy_window(connection.data(), window2);
+    xcb_flush(connection.data());
+    QVERIFY(Test::waitForWindowDestroyed(client2));
+    QVERIFY(client1->isActive());
+
+    // Destroy the first test window.
+    xcb_destroy_window(connection.data(), window1);
+    xcb_flush(connection.data());
+    QVERIFY(Test::waitForWindowDestroyed(client1));
+}
+
+void X11ClientTest::testReentrantSetFrameGeometry()
+{
+    // This test verifies that calling setFrameGeometry() from a slot connected directly
+    // to the frameGeometryChanged() signal won't cause an infinite recursion.
+
+    // Create a test window.
+    QScopedPointer<xcb_connection_t, XcbConnectionDeleter> c(xcb_connect(nullptr, nullptr));
+    QVERIFY(!xcb_connection_has_error(c.data()));
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_window_t w = xcb_generate_id(c.data());
+    xcb_create_window(c.data(), XCB_COPY_FROM_PARENT, w, rootWindow(),
+                      windowGeometry.x(),
+                      windowGeometry.y(),
+                      windowGeometry.width(),
+                      windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_set_wm_normal_hints(c.data(), w, &hints);
+    xcb_change_property(c.data(), XCB_PROP_MODE_REPLACE, w, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &w);
+    xcb_map_window(c.data(), w);
+    xcb_flush(c.data());
+
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(windowCreatedSpy.isValid());
+    QVERIFY(windowCreatedSpy.wait());
+    X11Client *client = windowCreatedSpy.first().first().value<X11Client *>();
+    QVERIFY(client);
+    QCOMPARE(client->pos(), QPoint(0, 0));
+
+    // Let's pretend that there is a script that really wants the client to be at (100, 100).
+    connect(client, &AbstractClient::frameGeometryChanged, this, [client]() {
+        client->setFrameGeometry(QRect(QPoint(100, 100), client->size()));
+    });
+
+    // Trigger the lambda above.
+    client->move(QPoint(40, 50));
+
+    // Eventually, the client will end up at (100, 100).
+    QCOMPARE(client->pos(), QPoint(100, 100));
+
+    // Destroy the test window.
+    xcb_destroy_window(c.data(), w);
+    xcb_flush(c.data());
+    QVERIFY(Test::waitForWindowDestroyed(client));
 }
 
 WAYLANDTEST_MAIN(X11ClientTest)

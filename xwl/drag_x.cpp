@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright 2019 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "drag_x.h"
 
 #include "databridge.h"
@@ -32,9 +21,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/datadevice.h>
 #include <KWayland/Client/datasource.h>
 
-#include <KWayland/Server/datasource_interface.h>
-#include <KWayland/Server/seat_interface.h>
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/datasource_interface.h>
+#include <KWaylandServer/seat_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #include <QMouseEvent>
 #include <QTimer>
@@ -68,14 +57,13 @@ XToWlDrag::XToWlDrag(X11Source *source)
     connect(DataBridge::self()->dnd(), &Dnd::transferFinished, this, [this](xcb_timestamp_t eventTime) {
         // we use this mechanism, because the finished call is not
         // reliable done by Wayland clients
-        auto it = std::find_if(m_dataRequests.begin(), m_dataRequests.end(), [this, eventTime](QPair<xcb_timestamp_t, bool> req) {
-            return req.first == eventTime;
+        auto it = std::find_if(m_dataRequests.begin(), m_dataRequests.end(), [eventTime](const QPair<xcb_timestamp_t, bool> &req) {
+            return req.first == eventTime && req.second == false;
         });
         if (it == m_dataRequests.end()) {
             // transfer finished for a different drag
             return;
         }
-        Q_ASSERT(!(*it).second);
         (*it).second = true;
         checkForFinished();
     });
@@ -116,15 +104,15 @@ XToWlDrag::XToWlDrag(X11Source *source)
     source->setDataSource(m_dataSource);
 
     auto *dc = new QMetaObject::Connection();
-    *dc = connect(waylandServer()->dataDeviceManager(), &KWayland::Server::DataDeviceManagerInterface::dataSourceCreated, this,
-                 [this, dc](KWayland::Server::DataSourceInterface *dsi) {
+    *dc = connect(waylandServer()->dataDeviceManager(), &KWaylandServer::DataDeviceManagerInterface::dataSourceCreated, this,
+                 [this, dc](KWaylandServer::DataSourceInterface *dsi) {
                     Q_ASSERT(dsi);
-                    if (dsi->client() != waylandServer()->internalConnection()) {
+                    if (dsi->client() != waylandServer()->internalConnection()->client()) {
                         return;
                     }
                     QObject::disconnect(*dc);
                     delete dc;
-                    connect(dsi, &KWayland::Server::DataSourceInterface::mimeTypeOffered, this, &XToWlDrag::offerCallback);
+                    connect(dsi, &KWaylandServer::DataSourceInterface::mimeTypeOffered, this, &XToWlDrag::offerCallback);
                 }
     );
     // Start drag with serial of last left pointer button press.
@@ -239,7 +227,7 @@ void XToWlDrag::setOffers(const Mimes &offers)
     // TODO: make sure that offers are not changed in between visits
 
     m_offersPending = m_offers = offers;
-    for (const auto mimePair : offers) {
+    for (const auto &mimePair : offers) {
         m_dataSource->offer(mimePair.first);
     }
 }
@@ -305,7 +293,7 @@ WlVisit::WlVisit(AbstractClient *target, XToWlDrag *drag)
                       8192, 8192,           // TODO: get current screen size and connect to changes
                       0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT,
-                      Xwayland::self()->xcbScreen()->root_visual,
+                      XCB_COPY_FROM_PARENT,
                       XCB_CW_EVENT_MASK,
                       dndValues);
 
@@ -383,7 +371,7 @@ bool WlVisit::handleEnter(xcb_client_message_event_t *event)
         for (size_t i = 0; i < 3; i++) {
             xcb_atom_t mimeAtom = data->data32[2 + i];
             const auto mimeStrings = atomToMimeTypes(mimeAtom);
-            for (const auto mime : mimeStrings ) {
+            for (const auto &mime : mimeStrings ) {
                 if (!hasMimeName(offers, mime)) {
                     offers << Mime(mime, mimeAtom);
                 }
@@ -421,7 +409,7 @@ void WlVisit::getMimesFromWinProperty(Mimes &offers)
     xcb_atom_t *mimeAtoms = static_cast<xcb_atom_t *>(xcb_get_property_value(reply));
     for (size_t i = 0; i < reply->value_len; ++i) {
         const auto mimeStrings = atomToMimeTypes(mimeAtoms[i]);
-        for (const auto mime : mimeStrings) {
+        for (const auto &mime : mimeStrings) {
             if (!hasMimeName(offers, mime)) {
                 offers << Mime(mime, mimeAtoms[i]);
             }
@@ -507,7 +495,7 @@ void WlVisit::sendStatus()
         // accept the drop
         flags |= (1 << 0);
     }
-    xcb_client_message_data_t data = {0};
+    xcb_client_message_data_t data = {};
     data.data32[0] = m_window;
     data.data32[1] = flags;
     data.data32[4] = flags & (1 << 0) ? m_actionAtom : static_cast<uint32_t>(XCB_ATOM_NONE);
@@ -517,7 +505,7 @@ void WlVisit::sendStatus()
 void WlVisit::sendFinished()
 {
     const bool accepted = m_entered && m_action != DnDAction::None;
-    xcb_client_message_data_t data = {0};
+    xcb_client_message_data_t data = {};
     data.data32[0] = m_window;
     data.data32[1] = accepted;
     data.data32[2] = accepted ? m_actionAtom : static_cast<uint32_t>(XCB_ATOM_NONE);

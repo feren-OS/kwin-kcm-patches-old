@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2019 Aleix Pol Gonzalez <aleixpol@kde.org>
+    SPDX-FileCopyrightText: 2019 Aleix Pol Gonzalez <aleixpol@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_TABLET_INPUT_H
 #define KWIN_TABLET_INPUT_H
@@ -26,11 +15,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QObject>
 #include <QPointF>
 #include <QPointer>
-#include <QTabletEvent>
 
 namespace KWin
 {
-class InputRedirection;
 class Toplevel;
 
 namespace Decoration
@@ -54,7 +41,9 @@ public:
 
     void tabletToolEvent(KWin::InputRedirection::TabletEventType type, const QPointF &pos,
                          qreal pressure, int xTilt, int yTilt, qreal rotation, bool tipDown,
-                         bool tipNear, quint64 serialId, quint64 toolId, LibInput::Device *device);
+                         bool tipNear, quint64 serialId, quint64 toolId,
+                         InputRedirection::TabletToolType toolType, const QVector<InputRedirection::Capability> &capabilities,
+                         quint32 time, LibInput::Device *device);
     void tabletToolButtonEvent(uint button, bool isPressed);
 
     void tabletPadButtonEvent(uint button, bool isPressed);

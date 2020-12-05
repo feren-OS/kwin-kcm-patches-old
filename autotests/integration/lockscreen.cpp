@@ -1,22 +1,11 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "platform.h"
 #include "abstract_client.h"
@@ -27,7 +16,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "screens.h"
 #include "wayland_server.h"
 #include "workspace.h"
-#include "xdgshellclient.h"
 #include <kwineffects.h>
 
 #include <KWayland/Client/connection_thread.h>
@@ -39,7 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWayland/Client/shm_pool.h>
 #include <KWayland/Client/surface.h>
 #include <KWayland/Client/touch.h>
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/seat_interface.h>
 
 //screenlocker
 #include <KScreenLocker/KsldApp>
@@ -62,6 +50,7 @@ private Q_SLOTS:
     void initTestCase();
     void init();
     void cleanup();
+    void testStackingOrder();
     void testPointer();
     void testPointerButton();
     void testPointerAxis();
@@ -84,7 +73,6 @@ private:
     KWayland::Client::Compositor *m_compositor = nullptr;
     KWayland::Client::Seat *m_seat = nullptr;
     KWayland::Client::ShmPool *m_shm = nullptr;
-    KWayland::Client::Shell *m_shell = nullptr;
 };
 
 class HelperEffect : public Effect
@@ -183,17 +171,16 @@ AbstractClient *LockScreenTest::showWindow()
 
 void LockScreenTest::initTestCase()
 {
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
 
     qputenv("KWIN_COMPOSE", QByteArrayLiteral("O2"));
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -215,12 +202,30 @@ void LockScreenTest::init()
     m_seat = Test::waylandSeat();
 
     screens()->setCurrent(0);
-    Cursor::setPos(QPoint(640, 512));
+    Cursors::self()->mouse()->setPos(QPoint(640, 512));
 }
 
 void LockScreenTest::cleanup()
 {
     Test::destroyWaylandConnection();
+}
+
+void LockScreenTest::testStackingOrder()
+{
+    // This test verifies that the lockscreen greeter is placed above other windows.
+
+    QSignalSpy clientAddedSpy(workspace(), &Workspace::clientAdded);
+    QVERIFY(clientAddedSpy.isValid());
+
+    LOCK
+    QVERIFY(clientAddedSpy.wait());
+
+    AbstractClient *client = clientAddedSpy.first().first().value<AbstractClient *>();
+    QVERIFY(client);
+    QVERIFY(client->isLockScreen());
+    QCOMPARE(client->layer(), UnmanagedLayer);
+
+    UNLOCK
 }
 
 void LockScreenTest::testPointer()

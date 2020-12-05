@@ -1,24 +1,13 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2012 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2012 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "windowselector.h"
 #include "x11client.h"
 #include "cursor.h"
@@ -110,9 +99,9 @@ bool WindowSelector::activate(const QByteArray &cursorName)
 xcb_cursor_t WindowSelector::createCursor(const QByteArray &cursorName)
 {
     if (cursorName.isEmpty()) {
-        return Cursor::x11Cursor(Qt::CrossCursor);
+        return Cursors::self()->mouse()->x11Cursor(Qt::CrossCursor);
     }
-    xcb_cursor_t cursor = Cursor::x11Cursor(cursorName);
+    xcb_cursor_t cursor = Cursors::self()->mouse()->x11Cursor(cursorName);
     if (cursor != XCB_CURSOR_NONE) {
         return cursor;
     }
@@ -168,7 +157,7 @@ void WindowSelector::handleButtonRelease(xcb_button_t button, xcb_window_t windo
         if (m_callback) {
             selectWindowId(window);
         } else if (m_pointSelectionFallback) {
-            m_pointSelectionFallback(Cursor::pos());
+            m_pointSelectionFallback(Cursors::self()->mouse()->pos());
         }
         release();
         return;
@@ -199,12 +188,12 @@ void WindowSelector::handleKeyPress(xcb_keycode_t keycode, uint16_t state)
         mx /= 10;
         my /= 10;
     }
-    Cursor::setPos(Cursor::pos() + QPoint(mx, my));
+    Cursors::self()->mouse()->setPos(Cursors::self()->mouse()->pos() + QPoint(mx, my));
     if (returnPressed) {
         if (m_callback) {
             selectWindowUnderPointer();
         } else if (m_pointSelectionFallback) {
-            m_pointSelectionFallback(Cursor::pos());
+            m_pointSelectionFallback(Cursors::self()->mouse()->pos());
         }
     }
     if (returnPressed || escapePressed) {

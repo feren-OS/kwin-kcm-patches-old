@@ -1,29 +1,18 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013, 2016, 2017 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013, 2016, 2017 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "xkb.h"
 #include "xkb_qt_mapping.h"
 #include "utils.h"
 // frameworks
 #include <KConfigGroup>
 // KWayland
-#include <KWayland/Server/seat_interface.h>
+#include <KWaylandServer/seat_interface.h>
 // Qt
 #include <QTemporaryFile>
 #include <QKeyEvent>
@@ -45,23 +34,27 @@ static void xkbLogHandler(xkb_context *context, xkb_log_level priority, const ch
 {
     Q_UNUSED(context)
     char buf[1024];
-    if (std::vsnprintf(buf, 1023, format, args) <= 0) {
+    int length = std::vsnprintf(buf, 1023, format, args);
+    while (length > 0 && std::isspace(buf[length - 1])) {
+        --length;
+    }
+    if (length <= 0) {
         return;
     }
     switch (priority) {
     case XKB_LOG_LEVEL_DEBUG:
-        qCDebug(KWIN_XKB) << "XKB:" << buf;
+        qCDebug(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     case XKB_LOG_LEVEL_INFO:
-        qCInfo(KWIN_XKB) << "XKB:" << buf;
+        qCInfo(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     case XKB_LOG_LEVEL_WARNING:
-        qCWarning(KWIN_XKB) << "XKB:" << buf;
+        qCWarning(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     case XKB_LOG_LEVEL_ERROR:
     case XKB_LOG_LEVEL_CRITICAL:
     default:
-        qCCritical(KWIN_XKB) << "XKB:" << buf;
+        qCCritical(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     }
 }
@@ -573,9 +566,9 @@ quint32 Xkb::numberOfLayouts() const
     return xkb_keymap_num_layouts(m_keymap);
 }
 
-void Xkb::setSeat(KWayland::Server::SeatInterface *seat)
+void Xkb::setSeat(KWaylandServer::SeatInterface *seat)
 {
-    m_seat = QPointer<KWayland::Server::SeatInterface>(seat);
+    m_seat = QPointer<KWaylandServer::SeatInterface>(seat);
 }
 
 }

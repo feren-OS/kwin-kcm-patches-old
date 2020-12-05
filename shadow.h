@@ -1,22 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2020 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_SHADOW_H
 #define KWIN_SHADOW_H
 
@@ -30,12 +20,9 @@ class Decoration;
 class DecorationShadow;
 }
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class ShadowInterface;
-}
 }
 
 namespace KWin {
@@ -168,10 +155,12 @@ private:
     static Shadow *createShadowFromX11(Toplevel *toplevel);
     static Shadow *createShadowFromDecoration(Toplevel *toplevel);
     static Shadow *createShadowFromWayland(Toplevel *toplevel);
+    static Shadow *createShadowFromInternalWindow(Toplevel *toplevel);
     static QVector<uint32_t> readX11ShadowProperty(xcb_window_t id);
     bool init(const QVector<uint32_t> &data);
     bool init(KDecoration2::Decoration *decoration);
-    bool init(const QPointer<KWayland::Server::ShadowInterface> &shadow);
+    bool init(const QPointer<KWaylandServer::ShadowInterface> &shadow);
+    bool init(const QWindow *window);
     Toplevel *m_topLevel;
     // shadow pixmaps
     QPixmap m_shadowElements[ShadowElementsCount];

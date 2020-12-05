@@ -1,32 +1,21 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2009, 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
-Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2009, 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-Based on glcompmgr code by Felix Bellaby.
-Using code from Compiz and Beryl.
+    Based on glcompmgr code by Felix Bellaby.
+    Using code from Compiz and Beryl.
 
-Explicit command stream synchronization based on the sample
-implementation by James Jones <jajones@nvidia.com>,
+    Explicit command stream synchronization based on the sample
+    implementation by James Jones <jajones@nvidia.com>,
 
-Copyright © 2011 NVIDIA Corporation
+    SPDX-FileCopyrightText: 2011 NVIDIA Corporation
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "scene_opengl.h"
 
 #include "platform.h"
@@ -49,9 +38,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "decorations/decoratedclient.h"
 #include <logging.h>
 
-#include <KWayland/Server/buffer_interface.h>
-#include <KWayland/Server/subcompositor_interface.h>
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/buffer_interface.h>
+#include <KWaylandServer/subcompositor_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #include <array>
 #include <cmath>
@@ -411,8 +400,9 @@ void SceneOpenGL::initDebugOutput()
         Q_UNUSED(source)
         Q_UNUSED(severity)
         Q_UNUSED(userParam)
-        while (message[length] == '\n' || message[length] == '\r')
+        while (length && std::isspace(message[length - 1])) {
             --length;
+        }
 
         switch (type) {
         case GL_DEBUG_TYPE_ERROR:
@@ -565,12 +555,25 @@ void SceneOpenGL::insertWait()
  * Render cursor texture in case hardware cursor is disabled.
  * Useful for screen recording apps or backends that can't do planes.
  */
-void SceneOpenGL2::paintCursor()
+void SceneOpenGL2::paintCursor(const QRegion &rendered)
 {
+    Cursor* cursor = Cursors::self()->currentCursor();
+
     // don't paint if we use hardware cursor or the cursor is hidden
     if (!kwinApp()->platform()->usesSoftwareCursor() ||
         kwinApp()->platform()->isCursorHidden() ||
-        kwinApp()->platform()->softwareCursor().isNull()) {
+        cursor->image().isNull()) {
+        return;
+    }
+
+    // figure out which part of the cursor needs to be repainted
+    const QPoint cursorPos = cursor->pos() - cursor->hotspot();
+    const QRect cursorRect = cursor->rect();
+    QRegion region;
+    for (const QRect &rect : rendered) {
+        region |= rect.translated(-cursorPos).intersected(cursorRect);
+    }
+    if (region.isEmpty()) {
         return;
     }
 
@@ -578,7 +581,7 @@ void SceneOpenGL2::paintCursor()
     if (!m_cursorTexture) {
         auto updateCursorTexture = [this] {
             // don't paint if no image for cursor is set
-            const QImage img = kwinApp()->platform()->softwareCursor();
+            const QImage img = Cursors::self()->currentCursor()->image();
             if (img.isNull()) {
                 return;
             }
@@ -589,12 +592,10 @@ void SceneOpenGL2::paintCursor()
         updateCursorTexture();
 
         // handle shape update on case cursor image changed
-        connect(kwinApp()->platform(), &Platform::cursorChanged, this, updateCursorTexture);
+        connect(Cursors::self(), &Cursors::currentCursorChanged, this, updateCursorTexture);
     }
 
     // get cursor position in projection coordinates
-    const QPoint cursorPos = Cursor::pos() - kwinApp()->platform()->softwareCursorHotspot();
-    const QRect cursorRect(0, 0, m_cursorTexture->width(), m_cursorTexture->height());
     QMatrix4x4 mvp = m_projectionMatrix;
     mvp.translate(cursorPos.x(), cursorPos.y());
 
@@ -606,15 +607,17 @@ void SceneOpenGL2::paintCursor()
     m_cursorTexture->bind();
     ShaderBinder binder(ShaderTrait::MapTexture);
     binder.shader()->setUniform(GLShader::ModelViewProjectionMatrix, mvp);
-    m_cursorTexture->render(QRegion(cursorRect), cursorRect);
+    m_cursorTexture->render(region, cursorRect);
     m_cursorTexture->unbind();
-
-    kwinApp()->platform()->markCursorAsRendered();
-
     glDisable(GL_BLEND);
 }
 
-qint64 SceneOpenGL::paint(QRegion damage, QList<Toplevel *> toplevels)
+void SceneOpenGL::aboutToStartPainting(const QRegion &damage)
+{
+    m_backend->aboutToStartPainting(damage);
+}
+
+qint64 SceneOpenGL::paint(const QRegion &damage, const QList<Toplevel *> &toplevels)
 {
     // actually paint the frame, flushed with the NEXT frame
     createStackingOrder(toplevels);
@@ -630,14 +633,15 @@ qint64 SceneOpenGL::paint(QRegion damage, QList<Toplevel *> toplevels)
         m_backend->prepareRenderingFrame();
         for (int i = 0; i < screens()->count(); ++i) {
             const QRect &geo = screens()->geometry(i);
+            const qreal scaling = screens()->scale(i);
             QRegion update;
             QRegion valid;
             // prepare rendering makes context current on the output
             QRegion repaint = m_backend->prepareRenderingForScreen(i);
             GLVertexBuffer::setVirtualScreenGeometry(geo);
             GLRenderTarget::setVirtualScreenGeometry(geo);
-            GLVertexBuffer::setVirtualScreenScale(screens()->scale(i));
-            GLRenderTarget::setVirtualScreenScale(screens()->scale(i));
+            GLVertexBuffer::setVirtualScreenScale(scaling);
+            GLRenderTarget::setVirtualScreenScale(scaling);
 
             const GLenum status = glGetGraphicsResetStatus();
             if (status != GL_NO_ERROR) {
@@ -647,8 +651,9 @@ qint64 SceneOpenGL::paint(QRegion damage, QList<Toplevel *> toplevels)
 
             int mask = 0;
             updateProjectionMatrix();
-            paintScreen(&mask, damage.intersected(geo), repaint, &update, &valid, projectionMatrix(), geo);   // call generic implementation
-            paintCursor();
+
+            paintScreen(&mask, damage.intersected(geo), repaint, &update, &valid, projectionMatrix(), geo, scaling);   // call generic implementation
+            paintCursor(valid);
 
             GLVertexBuffer::streamingBuffer()->endOfFrame();
 
@@ -734,7 +739,7 @@ QMatrix4x4 SceneOpenGL::transformation(int mask, const ScreenPaintData &data) co
     return matrix;
 }
 
-void SceneOpenGL::paintBackground(QRegion region)
+void SceneOpenGL::paintBackground(const QRegion &region)
 {
     PaintClipper pc(region);
     if (!PaintClipper::clip()) {
@@ -861,6 +866,11 @@ void SceneOpenGL::doneOpenGLContextCurrent()
     m_backend->doneCurrent();
 }
 
+bool SceneOpenGL::supportsSurfacelessContext() const
+{
+    return m_backend->supportsSurfacelessContext();
+}
+
 Scene::EffectFrame *SceneOpenGL::createEffectFrame(EffectFrameImpl *frame)
 {
     return new SceneOpenGL::EffectFrame(frame, this);
@@ -884,6 +894,11 @@ bool SceneOpenGL::animationsSupported() const
 QVector<QByteArray> SceneOpenGL::openGLPlatformInterfaceExtensions() const
 {
     return m_backend->extensions().toVector();
+}
+
+QSharedPointer<GLTexture> SceneOpenGL::textureForOutput(AbstractOutput* output) const
+{
+    return m_backend->textureForOutput(output);
 }
 
 //****************************************
@@ -1001,14 +1016,14 @@ void SceneOpenGL2::updateProjectionMatrix()
     m_projectionMatrix = createProjectionMatrix();
 }
 
-void SceneOpenGL2::paintSimpleScreen(int mask, QRegion region)
+void SceneOpenGL2::paintSimpleScreen(int mask, const QRegion &region)
 {
     m_screenProjectionMatrix = m_projectionMatrix;
 
     Scene::paintSimpleScreen(mask, region);
 }
 
-void SceneOpenGL2::paintGenericScreen(int mask, ScreenPaintData data)
+void SceneOpenGL2::paintGenericScreen(int mask, const ScreenPaintData &data)
 {
     const QMatrix4x4 screenMatrix = transformation(mask, data);
 
@@ -1035,7 +1050,7 @@ Scene::Window *SceneOpenGL2::createWindow(Toplevel *t)
     return new OpenGLWindow(t, this);
 }
 
-void SceneOpenGL2::finalDrawWindow(EffectWindowImpl* w, int mask, QRegion region, WindowPaintData& data)
+void SceneOpenGL2::finalDrawWindow(EffectWindowImpl* w, int mask, const QRegion &region, WindowPaintData& data)
 {
     if (waylandServer() && waylandServer()->isScreenLocked() && !w->window()->isLockScreen() && !w->window()->isInputMethod()) {
         return;
@@ -1043,7 +1058,7 @@ void SceneOpenGL2::finalDrawWindow(EffectWindowImpl* w, int mask, QRegion region
     performPaintWindow(w, mask, region, data);
 }
 
-void SceneOpenGL2::performPaintWindow(EffectWindowImpl* w, int mask, QRegion region, WindowPaintData& data)
+void SceneOpenGL2::performPaintWindow(EffectWindowImpl* w, int mask, const QRegion &region, WindowPaintData& data)
 {
     if (mask & PAINT_WINDOW_LANCZOS) {
         if (!m_lanczosFilter) {
@@ -1075,16 +1090,13 @@ OpenGLWindow::~OpenGLWindow()
 {
 }
 
-static SceneOpenGLTexture *s_frameTexture = nullptr;
 // Bind the window pixmap to an OpenGL texture.
 bool OpenGLWindow::bindTexture()
 {
-    s_frameTexture = nullptr;
     OpenGLWindowPixmap *pixmap = windowPixmap<OpenGLWindowPixmap>();
     if (!pixmap) {
         return false;
     }
-    s_frameTexture = pixmap->texture();
     if (pixmap->isDiscarded()) {
         return !pixmap->texture()->isNull();
     }
@@ -1131,7 +1143,7 @@ bool OpenGLWindow::beginRenderWindow(int mask, const QRegion &region, WindowPain
 
         const QRegion filterRegion = region.translated(-x(), -y());
         // split all quads in bounding rect with the actual rects in the region
-        foreach (const WindowQuad &quad, data.quads) {
+        for (const WindowQuad &quad : qAsConst(data.quads)) {
             for (const QRect &r : filterRegion) {
                 const QRectF rf(r);
                 const QRectF quadRect(QPointF(quad.left(), quad.top()), QPointF(quad.right(), quad.bottom()));
@@ -1153,26 +1165,12 @@ bool OpenGLWindow::beginRenderWindow(int mask, const QRegion &region, WindowPain
     if (data.quads.isEmpty())
         return false;
 
-    if (!bindTexture() || !s_frameTexture) {
+    if (!bindTexture()) {
         return false;
     }
 
     if (m_hardwareClipping) {
         glEnable(GL_SCISSOR_TEST);
-    }
-
-    // Update the texture filter
-    if (waylandServer()) {
-        filter = Scene::ImageFilterGood;
-        s_frameTexture->setFilter(GL_LINEAR);
-    } else {
-        if (options->glSmoothScale() != 0 &&
-            (mask & (Scene::PAINT_WINDOW_TRANSFORMED | Scene::PAINT_SCREEN_TRANSFORMED)))
-            filter = Scene::ImageFilterGood;
-        else
-            filter = Scene::ImageFilterFast;
-
-        s_frameTexture->setFilter(filter == Scene::ImageFilterGood ? GL_LINEAR : GL_NEAREST);
     }
 
     const GLVertexAttrib attribs[] = {
@@ -1243,40 +1241,151 @@ void OpenGLWindow::setBlendEnabled(bool enabled)
     m_blendingEnabled = enabled;
 }
 
-void OpenGLWindow::setupLeafNodes(LeafNode *nodes, const WindowQuadList *quads, const WindowPaintData &data)
+/**
+ * \internal
+ *
+ * Counts the total number of pixmaps in the tree with the given root \a windowPixmap.
+ */
+static int windowPixmapCount(WindowPixmap *windowPixmap)
 {
-    if (!quads[ShadowLeaf].isEmpty()) {
-        nodes[ShadowLeaf].texture = static_cast<SceneOpenGLShadow *>(m_shadow)->shadowTexture();
-        nodes[ShadowLeaf].opacity = data.opacity();
-        nodes[ShadowLeaf].hasAlpha = true;
-        nodes[ShadowLeaf].coordinateType = NormalizedCoordinates;
+    int count = 1; // 1 for the window pixmap itself.
+
+    const QVector<WindowPixmap *> children = windowPixmap->children();
+    for (WindowPixmap *child : children)
+        count += windowPixmapCount(child);
+
+    return count;
+}
+
+void OpenGLWindow::initializeRenderContext(RenderContext &context, const WindowPaintData &data)
+{
+    WindowPixmap *currentPixmap = windowPixmap<OpenGLWindowPixmap>();
+
+    context.shadowOffset = 0;
+    context.decorationOffset = 1;
+    context.contentOffset = 2;
+    context.previousContentOffset = windowPixmapCount(currentPixmap) + 2;
+    context.quadCount = data.quads.count();
+
+    const int nodeCount = context.previousContentOffset + 1;
+
+    QVector<RenderNode> &renderNodes = context.renderNodes;
+    renderNodes.resize(nodeCount);
+
+    for (const WindowQuad &quad : data.quads) {
+        switch (quad.type()) {
+        case WindowQuadShadow:
+            renderNodes[context.shadowOffset].quads << quad;
+            break;
+
+        case WindowQuadDecoration:
+            renderNodes[context.decorationOffset].quads << quad;
+            break;
+
+        case WindowQuadContents:
+            renderNodes[context.contentOffset + quad.id()].quads << quad;
+            break;
+
+        default:
+            // Ignore window quad generated by effects.
+            break;
+        }
     }
 
-    if (!quads[DecorationLeaf].isEmpty()) {
-        nodes[DecorationLeaf].texture = getDecorationTexture();
-        nodes[DecorationLeaf].opacity = data.opacity();
-        nodes[DecorationLeaf].hasAlpha = true;
-        nodes[DecorationLeaf].coordinateType = UnnormalizedCoordinates;
+    RenderNode &shadowRenderNode = renderNodes[context.shadowOffset];
+    if (!shadowRenderNode.quads.isEmpty()) {
+        SceneOpenGLShadow *shadow = static_cast<SceneOpenGLShadow *>(m_shadow);
+        shadowRenderNode.texture = shadow->shadowTexture();
+        shadowRenderNode.opacity = data.opacity();
+        shadowRenderNode.hasAlpha = true;
+        shadowRenderNode.coordinateType = NormalizedCoordinates;
+        shadowRenderNode.leafType = ShadowLeaf;
     }
 
-    nodes[ContentLeaf].texture = s_frameTexture;
-    nodes[ContentLeaf].hasAlpha = !isOpaque();
-    // TODO: ARGB crsoofading is atm. a hack, playing on opacities for two dumb SrcOver operations
-    // Should be a shader
+    RenderNode &decorationRenderNode = renderNodes[context.decorationOffset];
+    if (!decorationRenderNode.quads.isEmpty()) {
+        decorationRenderNode.texture = getDecorationTexture();
+        decorationRenderNode.opacity = data.opacity();
+        decorationRenderNode.hasAlpha = true;
+        decorationRenderNode.coordinateType = UnnormalizedCoordinates;
+        decorationRenderNode.leafType = DecorationLeaf;
+    }
+
+    // FIXME: Cross-fading must be implemented in a shader.
+    float contentOpacity = data.opacity();
     if (data.crossFadeProgress() != 1.0 && (data.opacity() < 0.95 || toplevel->hasAlpha())) {
         const float opacity = 1.0 - data.crossFadeProgress();
-        nodes[ContentLeaf].opacity = data.opacity() * (1 - pow(opacity, 1.0f + 2.0f * data.opacity()));
-    } else {
-        nodes[ContentLeaf].opacity = data.opacity();
+        contentOpacity *= 1 - pow(opacity, 1.0f + 2.0f * data.opacity());
     }
-    nodes[ContentLeaf].coordinateType = UnnormalizedCoordinates;
 
+    // The main surface and all of its sub-surfaces form a tree. In order to initialize
+    // the render nodes for the window pixmaps we need to traverse the tree in the
+    // depth-first search manner. The id of content window quads corresponds to the time
+    // when we visited the corresponding window pixmap. The DFS traversal probably doesn't
+    // have a significant impact on performance. However, if that's the case, we could
+    // keep a cache of window pixmaps in the order in which they'll be rendered.
+    QStack<WindowPixmap *> stack;
+    stack.push(currentPixmap);
+
+    int i = 0;
+
+    while (!stack.isEmpty()) {
+        OpenGLWindowPixmap *windowPixmap = static_cast<OpenGLWindowPixmap *>(stack.pop());
+
+        // If it's an unmapped sub-surface, don't render it and all of its children.
+        if (!windowPixmap->isValid())
+            continue;
+
+        RenderNode &contentRenderNode = renderNodes[context.contentOffset + i++];
+        contentRenderNode.texture = windowPixmap->texture();
+        contentRenderNode.hasAlpha = windowPixmap->hasAlphaChannel();
+        contentRenderNode.opacity = contentOpacity;
+        contentRenderNode.coordinateType = UnnormalizedCoordinates;
+        contentRenderNode.leafType = ContentLeaf;
+
+        const QVector<WindowPixmap *> children = windowPixmap->children();
+        for (WindowPixmap *child : children)
+            stack.push(child);
+    }
+
+    // Note that cross-fading is currently working properly only on X11. In order to make it
+    // work on Wayland, we have to render the current and the previous window pixmap trees in
+    // offscreen render targets, then use a cross-fading shader to blend those two layers.
     if (data.crossFadeProgress() != 1.0) {
         OpenGLWindowPixmap *previous = previousWindowPixmap<OpenGLWindowPixmap>();
-        nodes[PreviousContentLeaf].texture = previous ? previous->texture() : nullptr;
-        nodes[PreviousContentLeaf].hasAlpha = !isOpaque();
-        nodes[PreviousContentLeaf].opacity = data.opacity() * (1.0 - data.crossFadeProgress());
-        nodes[PreviousContentLeaf].coordinateType = NormalizedCoordinates;
+        if (previous) { // TODO(vlad): Should cross-fading be disabled on Wayland?
+            const QRect &oldGeometry = previous->contentsRect();
+            RenderNode &previousContentRenderNode = renderNodes[context.previousContentOffset];
+            for (const WindowQuad &quad : qAsConst(renderNodes[context.contentOffset].quads)) {
+                // We need to create new window quads with normalized texture coordinates.
+                // Normal quads divide the x/y position by width/height. This would not work
+                // as the texture is larger than the visible content in case of a decorated
+                // Client resulting in garbage being shown. So we calculate the normalized
+                // texture coordinate in the Client's new content space and map it to the
+                // previous Client's content space.
+                WindowQuad newQuad(WindowQuadContents);
+                for (int i = 0; i < 4; ++i) {
+                    const qreal xFactor = (quad[i].textureX() - toplevel->clientPos().x())
+                            / qreal(toplevel->clientSize().width());
+                    const qreal yFactor = (quad[i].textureY() - toplevel->clientPos().y())
+                            / qreal(toplevel->clientSize().height());
+                    const qreal u = (xFactor * oldGeometry.width() + oldGeometry.x())
+                            / qreal(previous->size().width());
+                    const qreal v = (yFactor * oldGeometry.height() + oldGeometry.y())
+                            / qreal(previous->size().height());
+                    newQuad[i] = WindowVertex(quad[i].x(), quad[i].y(), u, v);
+                }
+                previousContentRenderNode.quads.append(newQuad);
+            }
+
+            previousContentRenderNode.texture = previous->texture();
+            previousContentRenderNode.hasAlpha = previous->hasAlphaChannel();
+            previousContentRenderNode.opacity = data.opacity() * (1.0 - data.crossFadeProgress());
+            previousContentRenderNode.coordinateType = NormalizedCoordinates;
+            previousContentRenderNode.leafType = PreviousContentLeaf;
+
+            context.quadCount += previousContentRenderNode.quads.count();
+        }
     }
 }
 
@@ -1304,44 +1413,15 @@ QMatrix4x4 OpenGLWindow::modelViewProjectionMatrix(int mask, const WindowPaintDa
     return scene->projectionMatrix() * mvMatrix;
 }
 
-void OpenGLWindow::renderSubSurface(GLShader *shader, const QMatrix4x4 &mvp, const QMatrix4x4 &windowMatrix, OpenGLWindowPixmap *pixmap, const QRegion &region, bool hardwareClipping)
+void OpenGLWindow::performPaint(int mask, const QRegion &region, const WindowPaintData &_data)
 {
-    QMatrix4x4 newWindowMatrix = windowMatrix;
-    newWindowMatrix.translate(pixmap->subSurface()->position().x(), pixmap->subSurface()->position().y());
-
-    qreal scale = 1.0;
-    if (pixmap->surface()) {
-        scale = pixmap->surface()->scale();
-    }
-
-    if (!pixmap->texture()->isNull()) {
-        setBlendEnabled(pixmap->buffer() && pixmap->buffer()->hasAlphaChannel());
-        // render this texture
-        shader->setUniform(GLShader::ModelViewProjectionMatrix, mvp * newWindowMatrix);
-        auto texture = pixmap->texture();
-        texture->bind();
-        texture->render(region, QRect(0, 0, texture->width() / scale, texture->height() / scale), hardwareClipping);
-        texture->unbind();
-    }
-
-    const auto &children = pixmap->children();
-    for (auto pixmap : children) {
-        if (pixmap->subSurface().isNull() || pixmap->subSurface()->surface().isNull() || !pixmap->subSurface()->surface()->isMapped()) {
-            continue;
-        }
-        renderSubSurface(shader, mvp, newWindowMatrix, static_cast<OpenGLWindowPixmap*>(pixmap), region, hardwareClipping);
-    }
-}
-
-void OpenGLWindow::performPaint(int mask, QRegion region, WindowPaintData data)
-{
+    WindowPaintData data = _data;
     if (!beginRenderWindow(mask, region, data))
         return;
 
     QMatrix4x4 windowMatrix = transformation(mask, data);
     const QMatrix4x4 modelViewProjection = modelViewProjectionMatrix(mask, data);
     const QMatrix4x4 mvpMatrix = modelViewProjection * windowMatrix;
-
 
     bool useX11TextureClamp = false;
 
@@ -1379,76 +1459,30 @@ void OpenGLWindow::performPaint(int mask, QRegion region, WindowPaintData data)
 
     shader->setUniform(GLShader::Saturation, data.saturation());
 
-    WindowQuadList quads[LeafCount];
-
-    // Split the quads into separate lists for each type
-    foreach (const WindowQuad &quad, data.quads) {
-        switch (quad.type()) {
-        case WindowQuadDecoration:
-            quads[DecorationLeaf].append(quad);
-            continue;
-
-        case WindowQuadContents:
-            quads[ContentLeaf].append(quad);
-            continue;
-
-        case WindowQuadShadow:
-            quads[ShadowLeaf].append(quad);
-            continue;
-
-        default:
-            continue;
-        }
-    }
-
-    if (data.crossFadeProgress() != 1.0) {
-        OpenGLWindowPixmap *previous = previousWindowPixmap<OpenGLWindowPixmap>();
-        if (previous) {
-            const QRect &oldGeometry = previous->contentsRect();
-            for (const WindowQuad &quad : quads[ContentLeaf]) {
-                // we need to create new window quads with normalize texture coordinates
-                // normal quads divide the x/y position by width/height. This would not work as the texture
-                // is larger than the visible content in case of a decorated Client resulting in garbage being shown.
-                // So we calculate the normalized texture coordinate in the Client's new content space and map it to
-                // the previous Client's content space.
-                WindowQuad newQuad(WindowQuadContents);
-                for (int i = 0; i < 4; ++i) {
-                    const qreal xFactor = qreal(quad[i].textureX() - toplevel->clientPos().x())/qreal(toplevel->clientSize().width());
-                    const qreal yFactor = qreal(quad[i].textureY() - toplevel->clientPos().y())/qreal(toplevel->clientSize().height());
-                    WindowVertex vertex(quad[i].x(), quad[i].y(),
-                                        (xFactor * oldGeometry.width() + oldGeometry.x())/qreal(previous->size().width()),
-                                        (yFactor * oldGeometry.height() + oldGeometry.y())/qreal(previous->size().height()));
-                    newQuad[i] = vertex;
-                }
-                quads[PreviousContentLeaf].append(newQuad);
-            }
-        }
-    }
+    RenderContext renderContext;
+    initializeRenderContext(renderContext, data);
 
     const bool indexedQuads = GLVertexBuffer::supportsIndexedQuads();
     const GLenum primitiveType = indexedQuads ? GL_QUADS : GL_TRIANGLES;
     const int verticesPerQuad = indexedQuads ? 4 : 6;
 
-    const size_t size = verticesPerQuad *
-        (quads[0].count() + quads[1].count() + quads[2].count() + quads[3].count()) * sizeof(GLVertex2D);
+    const size_t size = verticesPerQuad * renderContext.quadCount * sizeof(GLVertex2D);
 
     GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
     GLVertex2D *map = (GLVertex2D *) vbo->map(size);
 
-    LeafNode nodes[LeafCount];
-    setupLeafNodes(nodes, quads, data);
-
-    for (int i = 0, v = 0; i < LeafCount; i++) {
-        if (quads[i].isEmpty() || !nodes[i].texture)
+    for (int i = 0, v = 0; i < renderContext.renderNodes.count(); i++) {
+        RenderNode &renderNode = renderContext.renderNodes[i];
+        if (renderNode.quads.isEmpty() || !renderNode.texture)
             continue;
 
-        nodes[i].firstVertex = v;
-        nodes[i].vertexCount = quads[i].count() * verticesPerQuad;
+        renderNode.firstVertex = v;
+        renderNode.vertexCount = renderNode.quads.count() * verticesPerQuad;
 
-        const QMatrix4x4 matrix = nodes[i].texture->matrix(nodes[i].coordinateType);
+        const QMatrix4x4 matrix = renderNode.texture->matrix(renderNode.coordinateType);
 
-        quads[i].makeInterleavedArrays(primitiveType, &map[v], matrix);
-        v += quads[i].count() * verticesPerQuad;
+        renderNode.quads.makeInterleavedArrays(primitiveType, &map[v], matrix);
+        v += renderNode.quads.count() * verticesPerQuad;
     }
 
     vbo->unmap();
@@ -1459,23 +1493,24 @@ void OpenGLWindow::performPaint(int mask, QRegion region, WindowPaintData data)
 
     float opacity = -1.0;
 
-    for (int i = 0; i < LeafCount; i++) {
-        if (nodes[i].vertexCount == 0)
+    for (int i = 0; i < renderContext.renderNodes.count(); i++) {
+        const RenderNode &renderNode = renderContext.renderNodes[i];
+        if (renderNode.vertexCount == 0)
             continue;
 
-        setBlendEnabled(nodes[i].hasAlpha || nodes[i].opacity < 1.0);
+        setBlendEnabled(renderNode.hasAlpha || renderNode.opacity < 1.0);
 
-        if (opacity != nodes[i].opacity) {
+        if (opacity != renderNode.opacity) {
             shader->setUniform(GLShader::ModulationConstant,
-                               modulate(nodes[i].opacity, data.brightness()));
-            opacity = nodes[i].opacity;
+                               modulate(renderNode.opacity, data.brightness()));
+            opacity = renderNode.opacity;
         }
 
-        nodes[i].texture->setFilter(filter);
-        nodes[i].texture->setWrapMode(GL_CLAMP_TO_EDGE);
-        nodes[i].texture->bind();
+        renderNode.texture->setFilter(filter);
+        renderNode.texture->setWrapMode(GL_CLAMP_TO_EDGE);
+        renderNode.texture->bind();
 
-        if (i == ContentLeaf && useX11TextureClamp) {
+        if (renderNode.leafType == ContentLeaf && useX11TextureClamp) {
             // X11 windows are reparented to have their buffer in the middle of a larger texture
             // holding the frame window.
             // This code passes the texture geometry to the fragment shader
@@ -1494,22 +1529,11 @@ void OpenGLWindow::performPaint(int mask, QRegion region, WindowPaintData data)
             shader->setUniform(GLShader::TextureClamp, QVector4D({0, 0, 1, 1}));
         }
 
-        vbo->draw(region, primitiveType, nodes[i].firstVertex, nodes[i].vertexCount, m_hardwareClipping);
+        vbo->draw(region, primitiveType, renderNode.firstVertex,
+                  renderNode.vertexCount, m_hardwareClipping);
     }
 
     vbo->unbindArrays();
-
-    // render sub-surfaces
-    auto wp = windowPixmap<OpenGLWindowPixmap>();
-    const auto &children = wp ? wp->children() : QVector<WindowPixmap*>();
-    const QPoint mainSurfaceOffset = bufferOffset();
-    windowMatrix.translate(mainSurfaceOffset.x(), mainSurfaceOffset.y());
-    for (auto pixmap : children) {
-        if (pixmap->subSurface().isNull() || pixmap->subSurface()->surface().isNull() || !pixmap->subSurface()->surface()->isMapped()) {
-            continue;
-        }
-        renderSubSurface(shader, modelViewProjection, windowMatrix, static_cast<OpenGLWindowPixmap*>(pixmap), region, m_hardwareClipping);
-    }
 
     setBlendEnabled(false);
 
@@ -1519,6 +1543,37 @@ void OpenGLWindow::performPaint(int mask, QRegion region, WindowPaintData data)
     endRenderWindow();
 }
 
+QSharedPointer<GLTexture> OpenGLWindow::windowTexture()
+{
+    auto frame = windowPixmap<OpenGLWindowPixmap>();
+
+    if (frame && frame->children().isEmpty()) {
+        return QSharedPointer<GLTexture>(new GLTexture(*frame->texture()));
+    } else {
+        auto effectWindow = window()->effectWindow();
+        const QRect geo = window()->clientGeometry();
+        QSharedPointer<GLTexture> texture(new GLTexture(GL_RGBA8, geo.size()));
+
+        QScopedPointer<GLRenderTarget> framebuffer(new KWin::GLRenderTarget(*texture));
+        GLRenderTarget::pushRenderTarget(framebuffer.data());
+
+        auto renderVSG = GLRenderTarget::virtualScreenGeometry();
+        GLVertexBuffer::setVirtualScreenGeometry(geo);
+        GLRenderTarget::setVirtualScreenGeometry(geo);
+
+        QMatrix4x4 mvp;
+        mvp.ortho(geo.x(), geo.x() + geo.width(), geo.y(), geo.y() + geo.height(), -1, 1);
+
+        WindowPaintData data(effectWindow);
+        data.setProjectionMatrix(mvp);
+
+        performPaint(Scene::PAINT_WINDOW_TRANSFORMED | Scene::PAINT_WINDOW_LANCZOS, geo, data);
+        GLRenderTarget::popRenderTarget();
+        GLVertexBuffer::setVirtualScreenGeometry(renderVSG);
+        GLRenderTarget::setVirtualScreenGeometry(renderVSG);
+        return texture;
+    }
+}
 
 //****************************************
 // OpenGLWindowPixmap
@@ -1531,7 +1586,7 @@ OpenGLWindowPixmap::OpenGLWindowPixmap(Scene::Window *window, SceneOpenGL* scene
 {
 }
 
-OpenGLWindowPixmap::OpenGLWindowPixmap(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface, WindowPixmap *parent, SceneOpenGL *scene)
+OpenGLWindowPixmap::OpenGLWindowPixmap(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface, WindowPixmap *parent, SceneOpenGL *scene)
     : WindowPixmap(subSurface, parent)
     , m_texture(scene->createTexture())
     , m_scene(scene)
@@ -1566,10 +1621,6 @@ static bool needsPixmapUpdate(const OpenGLWindowPixmap *pixmap)
 bool OpenGLWindowPixmap::bind()
 {
     if (!m_texture->isNull()) {
-        // always call updateBuffer to get the sub-surface tree updated
-        if (subSurface().isNull() && !toplevel()->damage().isEmpty()) {
-            updateBuffer();
-        }
         if (needsPixmapUpdate(this)) {
             m_texture->updateFromPixmap(this);
             // mipmaps need to be updated
@@ -1583,11 +1634,6 @@ bool OpenGLWindowPixmap::bind()
             static_cast<OpenGLWindowPixmap*>(*it)->bind();
         }
         return true;
-    }
-    // also bind all children, needs to be done before checking isValid
-    // as there might be valid children to render, see https://bugreports.qt.io/browse/QTBUG-52192
-    if (subSurface().isNull()) {
-        updateBuffer();
     }
     for (auto it = children().constBegin(); it != children().constEnd(); ++it) {
         static_cast<OpenGLWindowPixmap*>(*it)->bind();
@@ -1607,7 +1653,7 @@ bool OpenGLWindowPixmap::bind()
     return success;
 }
 
-WindowPixmap *OpenGLWindowPixmap::createChild(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface)
+WindowPixmap *OpenGLWindowPixmap::createChild(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface)
 {
     return new OpenGLWindowPixmap(subSurface, this, m_scene);
 }
@@ -1711,12 +1757,13 @@ void SceneOpenGL::EffectFrame::crossFadeText()
     m_textTexture = nullptr;
 }
 
-void SceneOpenGL::EffectFrame::render(QRegion region, double opacity, double frameOpacity)
+void SceneOpenGL::EffectFrame::render(const QRegion &_region, double opacity, double frameOpacity)
 {
     if (m_effectFrame->geometry().isEmpty())
         return; // Nothing to display
 
-    region = infiniteRegion(); // TODO: Old region doesn't seem to work with OpenGL
+    Q_UNUSED(_region);
+    const QRegion region = infiniteRegion(); // TODO: Old region doesn't seem to work with OpenGL
 
     GLShader* shader = m_effectFrame->shader();
     if (!shader) {
@@ -2109,7 +2156,7 @@ QSharedPointer<GLTexture> DecorationShadowTextureCache::getTexture(SceneOpenGLSh
 {
     Q_ASSERT(shadow->hasDecorationShadow());
     unregister(shadow);
-    const auto &decoShadow = shadow->decorationShadow();
+    const auto &decoShadow = shadow->decorationShadow().toStrongRef();
     Q_ASSERT(!decoShadow.isNull());
     auto it = m_cache.find(decoShadow.data());
     if (it != m_cache.end()) {
@@ -2427,17 +2474,17 @@ bool SceneOpenGLShadow::prepareBackend()
     QPainter p;
     p.begin(&image);
 
-    p.drawPixmap(0, 0, shadowPixmap(ShadowElementTopLeft));
-    p.drawPixmap(innerRectLeft, 0, shadowPixmap(ShadowElementTop));
-    p.drawPixmap(width - topRight.width(), 0, shadowPixmap(ShadowElementTopRight));
+    p.drawPixmap(0, 0, topLeft.width(), topLeft.height(), shadowPixmap(ShadowElementTopLeft));
+    p.drawPixmap(innerRectLeft, 0, top.width(), top.height(), shadowPixmap(ShadowElementTop));
+    p.drawPixmap(width - topRight.width(), 0, topRight.width(), topRight.height(), shadowPixmap(ShadowElementTopRight));
 
-    p.drawPixmap(0, innerRectTop, shadowPixmap(ShadowElementLeft));
-    p.drawPixmap(width - right.width(), innerRectTop, shadowPixmap(ShadowElementRight));
+    p.drawPixmap(0, innerRectTop, left.width(), left.height(), shadowPixmap(ShadowElementLeft));
+    p.drawPixmap(width - right.width(), innerRectTop, right.width(), right.height(), shadowPixmap(ShadowElementRight));
 
-    p.drawPixmap(0, height - bottomLeft.height(), shadowPixmap(ShadowElementBottomLeft));
-    p.drawPixmap(innerRectLeft, height - bottom.height(), shadowPixmap(ShadowElementBottom));
-    p.drawPixmap(width - bottomRight.width(), height - bottomRight.height(), shadowPixmap(ShadowElementBottomRight));
-
+    p.drawPixmap(0, height - bottomLeft.height(), bottomLeft.width(), bottomLeft.height(), shadowPixmap(ShadowElementBottomLeft));
+    p.drawPixmap(innerRectLeft, height - bottom.height(), bottom.width(), bottom.height(), shadowPixmap(ShadowElementBottom));
+    p.drawPixmap(width - bottomRight.width(), height - bottomRight.height(), bottomRight.width(), bottomRight.height(), shadowPixmap(ShadowElementBottomRight));
+    
     p.end();
 
     // Check if the image is alpha-only in practice, and if so convert it to an 8-bpp format

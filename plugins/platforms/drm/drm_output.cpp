@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "drm_output.h"
 #include "drm_backend.h"
 #include "drm_object_plane.h"
@@ -24,14 +13,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "drm_object_connector.h"
 
 #include "composite.h"
+#include "cursor.h"
 #include "logind.h"
 #include "logging.h"
 #include "main.h"
-#include "orientation_sensor.h"
 #include "screens_drm.h"
 #include "wayland_server.h"
 // KWayland
-#include <KWayland/Server/output_interface.h>
+#include <KWaylandServer/output_interface.h>
 // KF5
 #include <KConfigGroup>
 #include <KLocalizedString>
@@ -80,12 +69,15 @@ void DrmOutput::teardown()
         }
         m_primaryPlane->setCurrent(nullptr);
     }
+    if (m_cursorPlane) {
+        m_cursorPlane->setOutput(nullptr);
+    }
 
     m_crtc->setOutput(nullptr);
     m_conn->setOutput(nullptr);
 
-    delete m_cursor[0];
-    delete m_cursor[1];
+    m_cursor[0].reset(nullptr);
+    m_cursor[1].reset(nullptr);
     if (!m_pageFlipPending) {
         deleteLater();
     } //else will be deleted in the page flip handler
@@ -115,7 +107,16 @@ bool DrmOutput::showCursor(DrmDumbBuffer *c)
 
 bool DrmOutput::showCursor()
 {
-    const bool ret = showCursor(m_cursor[m_cursorIndex]);
+    if (m_deleted) {
+        return false;
+    }
+
+    if (Q_UNLIKELY(m_backend->usesSoftwareCursor())) {
+        qCCritical(KWIN_DRM) << "DrmOutput::showCursor should never be called when software cursor is enabled";
+        return true;
+    }
+
+    const bool ret = showCursor(m_cursor[m_cursorIndex].data());
     if (!ret) {
         return ret;
     }
@@ -128,45 +129,13 @@ bool DrmOutput::showCursor()
     return ret;
 }
 
-// TODO: Do we need to handle the flipped cases differently?
-int transformToRotation(DrmOutput::Transform transform)
-{
-    switch (transform) {
-    case DrmOutput::Transform::Normal:
-    case DrmOutput::Transform::Flipped:
-        return 0;
-    case DrmOutput::Transform::Rotated90:
-    case DrmOutput::Transform::Flipped90:
-        return 90;
-    case DrmOutput::Transform::Rotated180:
-    case DrmOutput::Transform::Flipped180:
-        return 180;
-    case DrmOutput::Transform::Rotated270:
-    case DrmOutput::Transform::Flipped270:
-        return 270;
-    }
-    Q_UNREACHABLE();
-    return 0;
-}
-
-QMatrix4x4 DrmOutput::matrixDisplay(const QSize &s) const
-{
-    QMatrix4x4 matrix;
-    const int angle = transformToRotation(transform());
-    if (angle) {
-        const QSize center = s / 2;
-
-        matrix.translate(center.width(), center.height());
-        matrix.rotate(angle, 0, 0, 1);
-        matrix.translate(-center.width(), -center.height());
-    }
-    matrix.scale(scale());
-    return matrix;
-}
-
 void DrmOutput::updateCursor()
 {
-    QImage cursorImage = m_backend->softwareCursor();
+    if (m_deleted) {
+        return;
+    }
+    const Cursor *cursor = Cursors::self()->currentCursor();
+    const QImage cursorImage = cursor->image();
     if (cursorImage.isNull()) {
         return;
     }
@@ -176,40 +145,20 @@ void DrmOutput::updateCursor()
 
     QPainter p;
     p.begin(c);
-    p.setWorldTransform(matrixDisplay(QSize(cursorImage.width(), cursorImage.height())).toTransform());
+    p.setWorldTransform(logicalToNativeMatrix(cursor->rect(), scale(), transform()).toTransform());
     p.drawImage(QPoint(0, 0), cursorImage);
     p.end();
 }
 
-void DrmOutput::moveCursor(const QPoint &globalPos)
+void DrmOutput::moveCursor(Cursor* cursor, const QPoint &globalPos)
 {
-    const QMatrix4x4 hotspotMatrix = matrixDisplay(m_backend->softwareCursor().size());
+    const QMatrix4x4 hotspotMatrix = logicalToNativeMatrix(cursor->rect(), scale(), transform());
+    const QMatrix4x4 monitorMatrix = logicalToNativeMatrix(geometry(), scale(), transform());
 
-    QPoint p = globalPos - AbstractWaylandOutput::globalPos();
+    QPoint pos = monitorMatrix.map(globalPos);
+    pos -= hotspotMatrix.map(cursor->hotspot());
 
-    // TODO: Do we need to handle the flipped cases differently?
-    switch (transform()) {
-    case Transform::Normal:
-    case Transform::Flipped:
-        break;
-    case Transform::Rotated90:
-    case Transform::Flipped90:
-        p = QPoint(p.y(), pixelSize().height() - p.x());
-        break;
-    case Transform::Rotated270:
-    case Transform::Flipped270:
-        p = QPoint(pixelSize().width() - p.y(), p.x());
-        break;
-    case Transform::Rotated180:
-    case Transform::Flipped180:
-        p = QPoint(pixelSize().width() - p.x(), pixelSize().height() - p.y());
-        break;
-    default:
-        Q_UNREACHABLE();
-    }
-    p *= scale();
-    p -= hotspotMatrix.map(m_backend->softwareCursorHotspot());
-    drmModeMoveCursor(m_backend->fd(), m_crtc->id(), p.x(), p.y());
+    drmModeMoveCursor(m_backend->fd(), m_crtc->id(), pos.x(), pos.y());
 }
 
 static QHash<int, QByteArray> s_connectorNames = {
@@ -268,15 +217,6 @@ bool DrmOutput::init(drmModeConnector *connector)
     setInternal(connector->connector_type == DRM_MODE_CONNECTOR_LVDS || connector->connector_type == DRM_MODE_CONNECTOR_eDP
                 || connector->connector_type == DRM_MODE_CONNECTOR_DSI);
     setDpmsSupported(true);
-
-    if (isInternal()) {
-        connect(kwinApp(), &Application::screensCreated, this,
-            [this] {
-                connect(screens()->orientationSensor(), &OrientationSensor::orientationChanged, this, &DrmOutput::automaticRotation);
-            }
-        );
-    }
-
     initOutputDevice(connector);
 
     if (!m_backend->atomicModeSetting() && !m_crtc->blank()) {
@@ -284,7 +224,7 @@ bool DrmOutput::init(drmModeConnector *connector)
         return false;
     }
 
-    updateDpms(KWayland::Server::OutputInterface::DpmsMode::On);
+    updateDpms(KWaylandServer::OutputInterface::DpmsMode::On);
     return true;
 }
 
@@ -301,11 +241,13 @@ void DrmOutput::initUuid()
 void DrmOutput::initOutputDevice(drmModeConnector *connector)
 {
     QString manufacturer;
-    if (!m_edid.eisaId().isEmpty()) {
+    if (!m_edid.vendor().isEmpty()) {
+        manufacturer = QString::fromLatin1(m_edid.vendor());
+    } else if (!m_edid.eisaId().isEmpty()) {
         manufacturer = QString::fromLatin1(m_edid.eisaId());
     }
 
-    QString connectorName = s_connectorNames.value(connector->connector_type, QByteArrayLiteral("Unknown"));
+    QString connectorName = s_connectorNames.value(connector->connector_type, QByteArrayLiteral("Unknown")) + QStringLiteral("-") + QString::number(connector->connector_type_id);
     QString modelName;
 
     if (!m_edid.monitorName().isEmpty()) {
@@ -321,23 +263,23 @@ void DrmOutput::initOutputDevice(drmModeConnector *connector)
         modelName = i18n("unknown");
     }
 
-    const QString model = connectorName + QStringLiteral("-") + QString::number(connector->connector_type_id) + QStringLiteral("-") + modelName;
+    const QString model = connectorName + QStringLiteral("-") + modelName;
 
     // read in mode information
-    QVector<KWayland::Server::OutputDeviceInterface::Mode> modes;
+    QVector<KWaylandServer::OutputDeviceInterface::Mode> modes;
     for (int i = 0; i < connector->count_modes; ++i) {
         // TODO: in AMS here we could read and store for later every mode's blob_id
         // would simplify isCurrentMode(..) and presentAtomically(..) in case of mode set
         auto *m = &connector->modes[i];
-        KWayland::Server::OutputDeviceInterface::ModeFlags deviceflags;
+        KWaylandServer::OutputDeviceInterface::ModeFlags deviceflags;
         if (isCurrentMode(m)) {
-            deviceflags |= KWayland::Server::OutputDeviceInterface::ModeFlag::Current;
+            deviceflags |= KWaylandServer::OutputDeviceInterface::ModeFlag::Current;
         }
         if (m->type & DRM_MODE_TYPE_PREFERRED) {
-            deviceflags |= KWayland::Server::OutputDeviceInterface::ModeFlag::Preferred;
+            deviceflags |= KWaylandServer::OutputDeviceInterface::ModeFlag::Preferred;
         }
 
-        KWayland::Server::OutputDeviceInterface::Mode mode;
+        KWaylandServer::OutputDeviceInterface::Mode mode;
         mode.id = i;
         mode.size = QSize(m->hdisplay, m->vdisplay);
         mode.flags = deviceflags;
@@ -357,7 +299,7 @@ void DrmOutput::initOutputDevice(drmModeConnector *connector)
         qCWarning(KWIN_DRM) << "Overwriting monitor physical size for" << m_edid.eisaId() << "/" << m_edid.monitorName() << "/" << m_edid.serialNumber() << " from " << physicalSize << "to " << overwriteSize;
         physicalSize = overwriteSize;
     }
-
+    setName(connectorName);
     initInterfaces(model, manufacturer, m_uuid, physicalSize, modes);
 }
 
@@ -379,7 +321,6 @@ bool DrmOutput::isCurrentMode(const drmModeModeInfo *mode) const
         && mode->type        == m_mode.type
         && qstrcmp(mode->name, m_mode.name) == 0;
 }
-
 void DrmOutput::initEdid(drmModeConnector *connector)
 {
     DrmScopedPointer<drmModePropertyBlobRes> edid;
@@ -460,7 +401,7 @@ bool DrmOutput::initCursorPlane()       // TODO: Add call in init (but needs lay
 bool DrmOutput::initCursor(const QSize &cursorSize)
 {
     auto createCursor = [this, cursorSize] (int index) {
-        m_cursor[index] = m_backend->createBuffer(cursorSize);
+        m_cursor[index].reset(m_backend->createBuffer(cursorSize));
         if (!m_cursor[index]->map(QImage::Format_ARGB32_Premultiplied)) {
             return false;
         }
@@ -536,9 +477,9 @@ void DrmOutput::atomicDisable()
     }
 }
 
-static DrmOutput::DpmsMode fromWaylandDpmsMode(KWayland::Server::OutputInterface::DpmsMode wlMode)
+static DrmOutput::DpmsMode fromWaylandDpmsMode(KWaylandServer::OutputInterface::DpmsMode wlMode)
 {
-    using namespace KWayland::Server;
+    using namespace KWaylandServer;
     switch (wlMode) {
     case OutputInterface::DpmsMode::On:
         return DrmOutput::DpmsMode::On;
@@ -553,9 +494,9 @@ static DrmOutput::DpmsMode fromWaylandDpmsMode(KWayland::Server::OutputInterface
     }
 }
 
-static KWayland::Server::OutputInterface::DpmsMode toWaylandDpmsMode(DrmOutput::DpmsMode mode)
+static KWaylandServer::OutputInterface::DpmsMode toWaylandDpmsMode(DrmOutput::DpmsMode mode)
 {
-    using namespace KWayland::Server;
+    using namespace KWaylandServer;
     switch (mode) {
     case DrmOutput::DpmsMode::On:
         return OutputInterface::DpmsMode::On;
@@ -570,7 +511,7 @@ static KWayland::Server::OutputInterface::DpmsMode toWaylandDpmsMode(DrmOutput::
     }
 }
 
-void DrmOutput::updateDpms(KWayland::Server::OutputInterface::DpmsMode mode)
+void DrmOutput::updateDpms(KWaylandServer::OutputInterface::DpmsMode mode)
 {
     if (m_dpms.isNull() || !isEnabled()) {
         return;
@@ -580,6 +521,7 @@ void DrmOutput::updateDpms(KWayland::Server::OutputInterface::DpmsMode mode)
 
     if (drmMode == m_dpmsModePending) {
         qCDebug(KWIN_DRM) << "New DPMS mode equals old mode. DPMS unchanged.";
+        waylandOutput()->setDpmsMode(mode);
         return;
     }
 
@@ -608,10 +550,7 @@ void DrmOutput::dpmsFinishOn()
 {
     qCDebug(KWIN_DRM) << "DPMS mode set for output" << m_crtc->id() << "to On.";
 
-    auto wlOutput = waylandOutput();
-    if (wlOutput) {
-        wlOutput->setDpmsMode(toWaylandDpmsMode(DpmsMode::On));
-    }
+    waylandOutput()->setDpmsMode(toWaylandDpmsMode(DpmsMode::On));
 
     m_backend->checkOutputsAreOn();
     if (!m_backend->atomicModeSetting()) {
@@ -629,6 +568,8 @@ void DrmOutput::dpmsFinishOff()
     if (isEnabled()) {
         waylandOutput()->setDpmsMode(toWaylandDpmsMode(m_dpmsModePending));
         m_backend->createDpmsFilter();
+    } else {
+        waylandOutput()->setDpmsMode(toWaylandDpmsMode(DpmsMode::Off));
     }
 }
 
@@ -649,41 +590,68 @@ bool DrmOutput::dpmsLegacyApply()
     return true;
 }
 
+DrmPlane::Transformations outputToPlaneTransform(DrmOutput::Transform transform)
+ {
+    using OutTrans = DrmOutput::Transform;
+    using PlaneTrans = DrmPlane::Transformation;
+
+     // TODO: Do we want to support reflections (flips)?
+
+     switch (transform) {
+    case OutTrans::Normal:
+    case OutTrans::Flipped:
+        return PlaneTrans::Rotate0;
+    case OutTrans::Rotated90:
+    case OutTrans::Flipped90:
+        return PlaneTrans::Rotate90;
+    case OutTrans::Rotated180:
+    case OutTrans::Flipped180:
+        return PlaneTrans::Rotate180;
+    case OutTrans::Rotated270:
+    case OutTrans::Flipped270:
+        return PlaneTrans::Rotate270;
+     default:
+         Q_UNREACHABLE();
+     }
+}
+
+bool DrmOutput::hardwareTransforms() const
+{
+    if (!m_primaryPlane) {
+        return false;
+    }
+    return m_primaryPlane->transformation() == outputToPlaneTransform(transform());
+}
+
 void DrmOutput::updateTransform(Transform transform)
 {
-    DrmPlane::Transformation planeTransform;
+    const auto planeTransform = outputToPlaneTransform(transform);
 
-    // TODO: Do we want to support reflections (flips)?
+     if (m_primaryPlane) {
+        // At the moment we have to exclude hardware transforms for vertical buffers.
+        // For that we need to support other buffers and graceful fallback from atomic tests.
+        // Reason is that standard linear buffers are not suitable.
+        const bool isPortrait = transform == Transform::Rotated90
+                                || transform == Transform::Flipped90
+                                || transform == Transform::Rotated270
+                                || transform == Transform::Flipped270;
 
-    switch (transform) {
-    case Transform::Normal:
-    case Transform::Flipped:
-        planeTransform = DrmPlane::Transformation::Rotate0;
-        break;
-    case Transform::Rotated90:
-    case Transform::Flipped90:
-        planeTransform = DrmPlane::Transformation::Rotate90;
-        break;
-    case Transform::Rotated180:
-    case Transform::Flipped180:
-        planeTransform = DrmPlane::Transformation::Rotate180;
-        break;
-    case Transform::Rotated270:
-    case Transform::Flipped270:
-        planeTransform = DrmPlane::Transformation::Rotate270;
-        break;
-    default:
-        Q_UNREACHABLE();
-    }
-
-    if (m_primaryPlane) {
-        m_primaryPlane->setTransformation(planeTransform);
+        if (!qEnvironmentVariableIsSet("KWIN_DRM_SW_ROTATIONS_ONLY") &&
+                (m_primaryPlane->supportedTransformations() & planeTransform) &&
+                !isPortrait) {
+            m_primaryPlane->setTransformation(planeTransform);
+        } else {
+            m_primaryPlane->setTransformation(DrmPlane::Transformation::Rotate0);
+        }
     }
     m_modesetRequested = true;
 
-    // the cursor might need to get rotated
-    updateCursor();
-    showCursor();
+    // show cursor only if is enabled, i.e if pointer device is presentP
+    if (m_backend->isCursorEnabled() && !m_backend->usesSoftwareCursor()) {
+        // the cursor might need to get rotated
+        updateCursor();
+        showCursor();
+    }
 }
 
 void DrmOutput::updateMode(int modeIndex)
@@ -839,9 +807,11 @@ bool DrmOutput::presentAtomically(DrmBuffer *buffer)
                 m_primaryPlane->setTransformation(m_lastWorkingState.planeTransformations);
             }
             m_modesetRequested = true;
-            // the cursor might need to get rotated
-            updateCursor();
-            showCursor();
+            if (m_backend->isCursorEnabled()) {
+                // the cursor might need to get rotated
+                updateCursor();
+                showCursor();
+            }
             // TODO: forward to OutputInterface and OutputDeviceInterface
             setWaylandMode();
             emit screens()->changed();
@@ -1007,12 +977,15 @@ bool DrmOutput::doAtomicCommit(AtomicCommitMode mode)
 bool DrmOutput::atomicReqModesetPopulate(drmModeAtomicReq *req, bool enable)
 {
     if (enable) {
+        const QSize mSize = modeSize();
+        const QSize sourceSize = hardwareTransforms() ? pixelSize() : mSize;
+
         m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::SrcX), 0);
         m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::SrcY), 0);
-        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::SrcW), m_mode.hdisplay << 16);
-        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::SrcH), m_mode.vdisplay << 16);
-        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::CrtcW), m_mode.hdisplay);
-        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::CrtcH), m_mode.vdisplay);
+        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::SrcW), sourceSize.width() << 16);
+        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::SrcH), sourceSize.height() << 16);
+        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::CrtcW), mSize.width());
+        m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::CrtcH), mSize.height());
         m_primaryPlane->setValue(int(DrmPlane::PropertyIndex::CrtcId), m_crtc->id());
     } else {
         if (m_backend->deleteBufferAfterPageFlip()) {
@@ -1052,47 +1025,6 @@ bool DrmOutput::supportsTransformations() const
         || transformations.testFlag(DrmPlane::Transformation::Rotate270);
 }
 
-void DrmOutput::automaticRotation()
-{
-    if (!m_primaryPlane) {
-        return;
-    }
-    const auto supportedTransformations = m_primaryPlane->supportedTransformations();
-    const auto requestedTransformation = screens()->orientationSensor()->orientation();
-
-    Transform newTransformation = Transform::Normal;
-    switch (requestedTransformation) {
-    case OrientationSensor::Orientation::TopUp:
-        newTransformation = Transform::Normal;
-        break;
-    case OrientationSensor::Orientation::TopDown:
-        if (!supportedTransformations.testFlag(DrmPlane::Transformation::Rotate180)) {
-            return;
-        }
-        newTransformation = Transform::Rotated180;
-        break;
-    case OrientationSensor::Orientation::LeftUp:
-        if (!supportedTransformations.testFlag(DrmPlane::Transformation::Rotate90)) {
-            return;
-        }
-        newTransformation = Transform::Rotated90;
-        break;
-    case OrientationSensor::Orientation::RightUp:
-        if (!supportedTransformations.testFlag(DrmPlane::Transformation::Rotate270)) {
-            return;
-        }
-        newTransformation = Transform::Rotated270;
-        break;
-    case OrientationSensor::Orientation::FaceUp:
-    case OrientationSensor::Orientation::FaceDown:
-    case OrientationSensor::Orientation::Undefined:
-        // unsupported
-        return;
-    }
-    setTransform(newTransformation);
-    emit screens()->changed();
-}
-
 int DrmOutput::gammaRampSize() const
 {
     return m_crtc->gammaRampSize();
@@ -1103,4 +1035,11 @@ bool DrmOutput::setGammaRamp(const GammaRamp &gamma)
     return m_crtc->setGammaRamp(gamma);
 }
 
+}
+
+QDebug& operator<<(QDebug& s, const KWin::DrmOutput* output)
+{
+    if (!output)
+        return s.nospace() << "DrmOutput()";
+    return s.nospace() << "DrmOutput(" << output->name() << ", crtc:" << output->crtc() << ", connector:" << output->connector() << ", geometry:" << output->geometry() << ')';
 }

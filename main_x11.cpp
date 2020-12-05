@@ -1,24 +1,13 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2014 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2014 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "main_x11.h"
 
 #include <config-kwin.h>
@@ -208,6 +197,19 @@ void ApplicationX11::lostSelection()
     quit();
 }
 
+
+static xcb_screen_t *findXcbScreen(xcb_connection_t *connection, int screen)
+{
+    for (xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(connection));
+            it.rem;
+            --screen, xcb_screen_next(&it)) {
+        if (screen == 0) {
+            return it.data;
+        }
+    }
+    return nullptr;
+}
+
 void ApplicationX11::performStartup()
 {
     crashChecking();
@@ -215,11 +217,7 @@ void ApplicationX11::performStartup()
     if (Application::x11ScreenNumber() == -1) {
         Application::setX11ScreenNumber(QX11Info::appScreen());
     }
-
-    // QSessionManager for some reason triggers a very early commitDataRequest
-    // and updates the key - before we create the workspace and load the session
-    // data -> store and pass to the workspace constructor
-    m_originalSessionKey = sessionKey();
+    setX11DefaultScreen(findXcbScreen(x11Connection(), x11ScreenNumber()));
 
     owner.reset(new KWinSelectionOwner(Application::x11ScreenNumber()));
     connect(owner.data(), &KSelectionOwner::failedToClaimOwnership, []{
@@ -228,7 +226,7 @@ void ApplicationX11::performStartup()
     });
     connect(owner.data(), SIGNAL(lostOwnership()), SLOT(lostSelection()));
     connect(owner.data(), &KSelectionOwner::claimedOwnership, [this]{
-        setupEventFilters();
+        installNativeX11EventFilter();
         // first load options - done internally by a different thread
         createOptions();
 
@@ -254,6 +252,8 @@ void ApplicationX11::performStartup()
                 Xcb::sync(); // Trigger possible errors, there's still a chance to abort
 
                 notifyKSplash();
+
+                notifyStarted();
             }
         );
         connect(platform(), &Platform::initFailed, this,
@@ -340,8 +340,7 @@ void ApplicationX11::crashHandler(int signal)
 
 } // namespace
 
-extern "C"
-KWIN_EXPORT int kdemain(int argc, char * argv[])
+int main(int argc, char * argv[])
 {
     KWin::Application::setupMalloc();
     KWin::Application::setupLocalizedString();
@@ -421,6 +420,8 @@ KWIN_EXPORT int kdemain(int argc, char * argv[])
     qunsetenv("QT_DEVICE_PIXEL_RATIO");
     qunsetenv("QT_SCALE_FACTOR");
     QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
+    // KSMServer talks to us directly on DBus.
+    QCoreApplication::setAttribute(Qt::AA_DisableSessionManager);
 
     KWin::ApplicationX11 a(argc, argv);
     a.setupTranslator();

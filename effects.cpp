@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
-Copyright (C) 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2010, 2011 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "effects.h"
 
@@ -55,7 +44,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "composite.h"
 #include "xcbutils.h"
 #include "platform.h"
-#include "xdgshellclient.h"
+#include "waylandclient.h"
 #include "wayland_server.h"
 
 #include "decorations/decorationbridge.h"
@@ -166,7 +155,7 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
         }
     );
     connect(ws, &Workspace::clientAdded, this,
-        [this](X11Client *c) {
+        [this](AbstractClient *c) {
             if (c->readyForPainting())
                 slotClientShown(c);
             else
@@ -181,7 +170,7 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
     );
     connect(ws, &Workspace::internalClientAdded, this,
         [this](InternalClient *client) {
-            setupAbstractClientConnections(client);
+            setupClientConnections(client);
             emit windowAdded(client->effectWindow());
         }
     );
@@ -199,7 +188,7 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
     connect(ws->sessionManager(), &SessionManager::stateChanged, this,
             &KWin::EffectsHandler::sessionStateChanged);
     connect(vds, &VirtualDesktopManager::countChanged, this, &EffectsHandler::numberDesktopsChanged);
-    connect(Cursor::self(), &Cursor::mouseChanged, this, &EffectsHandler::mouseChanged);
+    connect(Cursors::self()->mouse(), &Cursor::mouseChanged, this, &EffectsHandler::mouseChanged);
     connect(screens(), &Screens::countChanged,    this, &EffectsHandler::numberScreensChanged);
     connect(screens(), &Screens::sizeChanged,     this, &EffectsHandler::virtualScreenSizeChanged);
     connect(screens(), &Screens::geometryChanged, this, &EffectsHandler::virtualScreenGeometryChanged);
@@ -255,23 +244,15 @@ EffectsHandlerImpl::EffectsHandlerImpl(Compositor *compositor, Scene *scene)
         setupUnmanagedConnections(u);
     }
     for (InternalClient *client : ws->internalClients()) {
-        setupAbstractClientConnections(client);
+        setupClientConnections(client);
     }
-    if (auto w = waylandServer()) {
-        connect(w, &WaylandServer::shellClientAdded, this,
-            [this](XdgShellClient *c) {
-                if (c->readyForPainting())
-                    slotXdgShellClientShown(c);
-                else
-                    connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotXdgShellClientShown);
-            }
-        );
+    if (waylandServer()) {
         const auto clients = waylandServer()->clients();
-        for (XdgShellClient *c : clients) {
+        for (AbstractClient *c : clients) {
             if (c->readyForPainting()) {
-                setupAbstractClientConnections(c);
+                setupClientConnections(c);
             } else {
-                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotXdgShellClientShown);
+                connect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotClientShown);
             }
         }
     }
@@ -295,7 +276,7 @@ void EffectsHandlerImpl::unloadAllEffects()
     effectsChanged();
 }
 
-void EffectsHandlerImpl::setupAbstractClientConnections(AbstractClient* c)
+void EffectsHandlerImpl::setupClientConnections(AbstractClient* c)
 {
     connect(c, &AbstractClient::windowClosed, this, &EffectsHandlerImpl::slotWindowClosed);
     connect(c, static_cast<void (AbstractClient::*)(KWin::AbstractClient*, MaximizeMode)>(&AbstractClient::clientMaximizedStateChanged),
@@ -334,7 +315,9 @@ void EffectsHandlerImpl::setupAbstractClientConnections(AbstractClient* c)
     );
     connect(c, &AbstractClient::modalChanged,         this, &EffectsHandlerImpl::slotClientModalityChanged);
     connect(c, &AbstractClient::geometryShapeChanged, this, &EffectsHandlerImpl::slotGeometryShapeChanged);
+    connect(c, &AbstractClient::frameGeometryChanged, this, &EffectsHandlerImpl::slotFrameGeometryChanged);
     connect(c, &AbstractClient::damaged,              this, &EffectsHandlerImpl::slotWindowDamaged);
+    connect(c, &AbstractClient::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
     connect(c, &AbstractClient::unresponsiveChanged, this,
         [this, c](bool unresponsive) {
             emit windowUnresponsiveChanged(c->effectWindow(), unresponsive);
@@ -369,17 +352,12 @@ void EffectsHandlerImpl::setupAbstractClientConnections(AbstractClient* c)
     );
 }
 
-void EffectsHandlerImpl::setupClientConnections(X11Client *c)
-{
-    setupAbstractClientConnections(c);
-    connect(c, &X11Client::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
-}
-
 void EffectsHandlerImpl::setupUnmanagedConnections(Unmanaged* u)
 {
     connect(u, &Unmanaged::windowClosed,         this, &EffectsHandlerImpl::slotWindowClosed);
     connect(u, &Unmanaged::opacityChanged,       this, &EffectsHandlerImpl::slotOpacityChanged);
     connect(u, &Unmanaged::geometryShapeChanged, this, &EffectsHandlerImpl::slotGeometryShapeChanged);
+    connect(u, &Unmanaged::frameGeometryChanged, this, &EffectsHandlerImpl::slotFrameGeometryChanged);
     connect(u, &Unmanaged::paddingChanged,       this, &EffectsHandlerImpl::slotPaddingChanged);
     connect(u, &Unmanaged::damaged,              this, &EffectsHandlerImpl::slotWindowDamaged);
 }
@@ -569,18 +547,11 @@ void EffectsHandlerImpl::slotOpacityChanged(Toplevel *t, qreal oldOpacity)
 
 void EffectsHandlerImpl::slotClientShown(KWin::Toplevel *t)
 {
-    Q_ASSERT(qobject_cast<X11Client *>(t));
-    X11Client *c = static_cast<X11Client *>(t);
+    Q_ASSERT(qobject_cast<AbstractClient *>(t));
+    AbstractClient *c = static_cast<AbstractClient *>(t);
     disconnect(c, &Toplevel::windowShown, this, &EffectsHandlerImpl::slotClientShown);
     setupClientConnections(c);
     emit windowAdded(c->effectWindow());
-}
-
-void EffectsHandlerImpl::slotXdgShellClientShown(Toplevel *t)
-{
-    XdgShellClient *c = static_cast<XdgShellClient *>(t);
-    setupAbstractClientConnections(c);
-    emit windowAdded(t->effectWindow());
 }
 
 void EffectsHandlerImpl::slotUnmanagedShown(KWin::Toplevel *t)
@@ -635,6 +606,14 @@ void EffectsHandlerImpl::slotGeometryShapeChanged(Toplevel* t, const QRect& old)
     if (t == nullptr || t->effectWindow() == nullptr)
         return;
     emit windowGeometryShapeChanged(t->effectWindow(), old);
+}
+
+void EffectsHandlerImpl::slotFrameGeometryChanged(Toplevel *toplevel, const QRect &oldGeometry)
+{
+    // effectWindow() might be nullptr during tear down of the client.
+    if (toplevel->effectWindow()) {
+        emit windowFrameGeometryChanged(toplevel->effectWindow(), oldGeometry);
+    }
 }
 
 void EffectsHandlerImpl::slotPaddingChanged(Toplevel* t, const QRect& old)
@@ -805,14 +784,14 @@ void* EffectsHandlerImpl::getProxy(QString name)
 
 void EffectsHandlerImpl::startMousePolling()
 {
-    if (Cursor::self())
-        Cursor::self()->startMousePolling();
+    if (Cursors::self()->mouse())
+        Cursors::self()->mouse()->startMousePolling();
 }
 
 void EffectsHandlerImpl::stopMousePolling()
 {
-    if (Cursor::self())
-        Cursor::self()->stopMousePolling();
+    if (Cursors::self()->mouse())
+        Cursors::self()->mouse()->stopMousePolling();
 }
 
 bool EffectsHandlerImpl::hasKeyboardGrab() const
@@ -1080,17 +1059,17 @@ EffectWindow* EffectsHandlerImpl::findWindow(WId id) const
     if (Unmanaged* w = Workspace::self()->findUnmanaged(id))
         return w->effectWindow();
     if (waylandServer()) {
-        if (XdgShellClient *w = waylandServer()->findClient(id)) {
+        if (AbstractClient *w = waylandServer()->findClient(id)) {
             return w->effectWindow();
         }
     }
     return nullptr;
 }
 
-EffectWindow* EffectsHandlerImpl::findWindow(KWayland::Server::SurfaceInterface *surf) const
+EffectWindow* EffectsHandlerImpl::findWindow(KWaylandServer::SurfaceInterface *surf) const
 {
     if (waylandServer()) {
-        if (XdgShellClient *w = waylandServer()->findClient(surf)) {
+        if (AbstractClient *w = waylandServer()->findClient(surf)) {
             return w->effectWindow();
         }
     }
@@ -1313,8 +1292,8 @@ void EffectsHandlerImpl::connectNotify(const QMetaMethod &signal)
 {
     if (signal == QMetaMethod::fromSignal(&EffectsHandler::cursorShapeChanged)) {
         if (!m_trackingCursorChanges) {
-            connect(Cursor::self(), &Cursor::cursorChanged, this, &EffectsHandler::cursorShapeChanged);
-            Cursor::self()->startCursorTracking();
+            connect(Cursors::self()->mouse(), &Cursor::cursorChanged, this, &EffectsHandler::cursorShapeChanged);
+            Cursors::self()->mouse()->startCursorTracking();
         }
         ++m_trackingCursorChanges;
     }
@@ -1326,8 +1305,8 @@ void EffectsHandlerImpl::disconnectNotify(const QMetaMethod &signal)
     if (signal == QMetaMethod::fromSignal(&EffectsHandler::cursorShapeChanged)) {
         Q_ASSERT(m_trackingCursorChanges > 0);
         if (!--m_trackingCursorChanges) {
-            Cursor::self()->stopCursorTracking();
-            disconnect(Cursor::self(), &Cursor::cursorChanged, this, &EffectsHandler::cursorShapeChanged);
+            Cursors::self()->mouse()->stopCursorTracking();
+            disconnect(Cursors::self()->mouse(), &Cursor::cursorChanged, this, &EffectsHandler::cursorShapeChanged);
         }
     }
     EffectsHandler::disconnectNotify(signal);
@@ -1348,7 +1327,7 @@ void EffectsHandlerImpl::doCheckInputWindowStacking()
 
 QPoint EffectsHandlerImpl::cursorPos() const
 {
-    return Cursor::pos();
+    return Cursors::self()->mouse()->pos();
 }
 
 void EffectsHandlerImpl::reserveElectricBorder(ElectricBorder border, Effect *effect)
@@ -1538,7 +1517,7 @@ QStringList EffectsHandlerImpl::activeEffects() const
     return ret;
 }
 
-KWayland::Server::Display *EffectsHandlerImpl::waylandDisplay() const
+KWaylandServer::Display *EffectsHandlerImpl::waylandDisplay() const
 {
     if (waylandServer()) {
         return waylandServer()->display();
@@ -1688,7 +1667,7 @@ KSharedConfigPtr EffectsHandlerImpl::config() const
 
 KSharedConfigPtr EffectsHandlerImpl::inputConfig() const
 {
-    return kwinApp()->inputConfig();
+    return InputConfig::self()->inputConfig();
 }
 
 Effect *EffectsHandlerImpl::findEffect(const QString &name) const
@@ -1735,7 +1714,7 @@ EffectWindowImpl::EffectWindowImpl(Toplevel *toplevel)
     // can still figure out whether it is/was a managed window.
     managed = toplevel->isClient();
 
-    waylandClient = qobject_cast<KWin::XdgShellClient *>(toplevel) != nullptr;
+    waylandClient = qobject_cast<KWin::WaylandClient *>(toplevel) != nullptr;
     x11Client = qobject_cast<KWin::X11Client *>(toplevel) != nullptr ||
         qobject_cast<KWin::Unmanaged *>(toplevel) != nullptr;
 }
@@ -1855,7 +1834,7 @@ TOPLEVEL_HELPER(bool, hasOwnShape, shape)
 TOPLEVEL_HELPER(QString, windowRole, windowRole)
 TOPLEVEL_HELPER(QStringList, activities, activities)
 TOPLEVEL_HELPER(bool, skipsCloseAnimation, skipsCloseAnimation)
-TOPLEVEL_HELPER(KWayland::Server::SurfaceInterface *, surface, surface)
+TOPLEVEL_HELPER(KWaylandServer::SurfaceInterface *, surface, surface)
 TOPLEVEL_HELPER(bool, isPopupWindow, isPopupWindow)
 TOPLEVEL_HELPER(bool, isOutline, isOutline)
 TOPLEVEL_HELPER(pid_t, pid, pid)
@@ -1989,6 +1968,21 @@ EffectWindow* EffectWindowImpl::findModal()
     AbstractClient *modal = client->findModal();
     if (modal) {
         return modal->effectWindow();
+    }
+
+    return nullptr;
+}
+
+EffectWindow* EffectWindowImpl::transientFor()
+{
+    auto client = qobject_cast<AbstractClient *>(toplevel);
+    if (!client) {
+        return nullptr;
+    }
+
+    AbstractClient *transientFor = client->transientFor();
+    if (transientFor) {
+        return transientFor->effectWindow();
     }
 
     return nullptr;

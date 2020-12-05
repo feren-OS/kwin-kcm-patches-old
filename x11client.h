@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 1999, 2000 Matthias Ettrich <ettrich@kde.org>
-Copyright (C) 2003 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 1999, 2000 Matthias Ettrich <ettrich@kde.org>
+    SPDX-FileCopyrightText: 2003 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #pragma once
 
@@ -85,6 +74,8 @@ class KWIN_EXPORT X11Client : public AbstractClient
     Q_PROPERTY(bool clientSideDecorated READ isClientSideDecorated NOTIFY clientSideDecoratedChanged)
 public:
     explicit X11Client();
+    ~X11Client() override; ///< Use destroyClient() or releaseWindow()
+
     xcb_window_t wrapperId() const;
     xcb_window_t inputId() const { return m_decoInputExtent; }
     xcb_window_t frameId() const override;
@@ -112,6 +103,7 @@ public:
     Group* group() override;
     void checkGroup(Group* gr = nullptr, bool force = false);
     void changeClientLeaderGroup(Group* gr);
+    bool supportsWindowRules() const override;
     void updateWindowRules(Rules::Types selection) override;
     void applyWindowRules() override;
     void updateFullscreenMonitors(NETFullscreenMonitors topology);
@@ -121,7 +113,6 @@ public:
     QSize minSize() const override;
     QSize maxSize() const override;
     QSize basicUnit() const;
-    QSize clientSize() const override;
     QPoint inputPos() const { return input_offset; } // Inside of geometry()
 
     bool windowEvent(xcb_generic_event_t *e);
@@ -129,7 +120,7 @@ public:
 
     bool manage(xcb_window_t w, bool isMapped);
     void releaseWindow(bool on_shutdown = false);
-    void destroyClient();
+    void destroyClient() override;
 
     QStringList activities() const override;
     void setOnActivity(const QString &activity, bool enable);
@@ -142,12 +133,8 @@ public:
     bool isShown(bool shaded_is_shown) const override;
     bool isHiddenInternal() const override; // For compositing
 
-    ShadeMode shadeMode() const override; // Prefer isShade()
-    void setShade(ShadeMode mode) override;
     bool isShadeable() const override;
-
     bool isMaximizable() const override;
-    QRect geometryRestore() const override;
     MaximizeMode maximizeMode() const override;
 
     bool isMinimizable() const override;
@@ -180,7 +167,7 @@ public:
     bool isMovableAcrossScreens() const override;
     bool isCloseable() const override; ///< May be closed by the user (May have a close button)
 
-    void takeFocus() override;
+    bool takeFocus() override;
 
     void updateDecoration(bool check_workspace_pos, bool force = false) override;
 
@@ -188,24 +175,17 @@ public:
 
     using AbstractClient::move;
     void move(int x, int y, ForceGeometry_t force = NormalGeometrySet) override;
-    using AbstractClient::setFrameGeometry;
-    void setFrameGeometry(int x, int y, int w, int h, ForceGeometry_t force = NormalGeometrySet) override;
+    void setFrameGeometry(const QRect &rect, ForceGeometry_t force = NormalGeometrySet) override;
     /// plainResize() simply resizes
     void plainResize(int w, int h, ForceGeometry_t force = NormalGeometrySet);
     void plainResize(const QSize& s, ForceGeometry_t force = NormalGeometrySet);
     /// resizeWithChecks() resizes according to gravity, and checks workarea position
-    using AbstractClient::resizeWithChecks;
-    void resizeWithChecks(int w, int h, ForceGeometry_t force = NormalGeometrySet) override;
+    void resizeWithChecks(const QSize &size, ForceGeometry_t force = NormalGeometrySet) override;
     void resizeWithChecks(int w, int h, xcb_gravity_t gravity, ForceGeometry_t force = NormalGeometrySet);
     void resizeWithChecks(const QSize& s, xcb_gravity_t gravity, ForceGeometry_t force = NormalGeometrySet);
-    QSize sizeForClientSize(const QSize&, Sizemode mode = SizemodeAny, bool noframe = false) const override;
+    QSize constrainClientSize(const QSize &size, SizeMode mode = SizeModeAny) const override;
 
     bool providesContextHelp() const override;
-
-    Options::WindowOperation mouseButtonToWindowOperation(Qt::MouseButtons button);
-    bool performMouseCommand(Options::MouseCommand, const QPoint& globalPos) override;
-
-    QRect adjustedClientArea(const QRect& desktop, const QRect& area) const;
 
     xcb_colormap_t colormap() const;
 
@@ -253,12 +233,10 @@ public:
     static bool sameAppWindowRoleMatch(const X11Client *c1, const X11Client *c2, bool active_hack);
 
     void killWindow() override;
-    void toggleShade();
     void showContextHelp() override;
-    void cancelShadeHoverTimer();
     void checkActiveModal();
-    StrutRect strutRect(StrutArea area) const;
-    StrutRects strutRects() const;
+
+    StrutRect strutRect(StrutArea area) const override;
     bool hasStrut() const override;
 
     /**
@@ -268,12 +246,6 @@ public:
      * client.
      */
     void setClientShown(bool shown) override;
-
-    /**
-     * Whether or not the window has a strut that expands through the invisible area of
-     * an xinerama setup where the monitors are not the same resolution.
-     */
-    bool hasOffscreenXineramaStrut() const;
 
     QRect transparentRect() const override;
 
@@ -285,16 +257,13 @@ public:
     Xcb::Property fetchFirstInTabBox() const;
     void readFirstInTabBox(Xcb::Property &property);
     void updateFirstInTabBox();
-    Xcb::StringProperty fetchColorScheme() const;
-    void readColorScheme(Xcb::StringProperty &property);
-    void updateColorScheme() override;
+    Xcb::StringProperty fetchPreferredColorScheme() const;
+    QString readPreferredColorScheme(Xcb::StringProperty &property) const;
+    QString preferredColorScheme() const override;
 
     //sets whether the client should be faked as being on all activities (and be shown during session save)
     void setSessionActivityOverride(bool needed);
     bool isClient() const override;
-
-    template <typename T>
-    void print(T &stream) const;
 
     void cancelFocusOutTimer();
 
@@ -323,6 +292,7 @@ public:
     const SyncRequest &syncRequest() const {
         return m_syncRequest;
     }
+    virtual bool wantsSyncCounter() const;
     void handleSync();
 
     static void cleanupX11();
@@ -331,14 +301,7 @@ public Q_SLOTS:
     void closeWindow() override;
     void updateCaption() override;
 
-private Q_SLOTS:
-    void shadeHover();
-    void shadeUnhover();
-
 private:
-    // Use Workspace::createClient()
-    ~X11Client() override; ///< Use destroyClient() or releaseWindow()
-
     // Handlers for X11 events
     bool mapRequestEvent(xcb_map_request_event_t *e);
     void unmapNotifyEvent(xcb_unmap_notify_event_t *e);
@@ -357,19 +320,19 @@ private:
     bool motionNotifyEvent(xcb_window_t w, int state, int x, int y, int x_root, int y_root);
 
 protected:
-    void debug(QDebug& stream) const override;
     void addDamage(const QRegion &damage) override;
     bool belongsToSameApplication(const AbstractClient *other, SameApplicationChecks checks) const override;
     void doSetActive() override;
     void doSetKeepAbove() override;
     void doSetKeepBelow() override;
-    void doSetDesktop(int desktop, int was_desk) override;
+    void doSetShade(ShadeMode previousShadeMode) override;
+    void doSetDesktop() override;
     void doMinimize() override;
     void doSetSkipPager() override;
     void doSetSkipTaskbar() override;
     void doSetSkipSwitcher() override;
+    void doSetDemandsAttention() override;
     bool belongsToDesktop() const override;
-    void setGeometryRestore(const QRect &geo) override;
     bool doStartMoveResize() override;
     void doPerformMoveResize() override;
     bool isWaitingForMoveResizeSync() const override;
@@ -431,17 +394,16 @@ private:
     void sendSyncRequest();
     void leaveMoveResize() override;
     void positionGeometryTip() override;
-    void grabButton(int mod);
-    void ungrabButton(int mod);
+    void establishCommandWindowGrab(uint8_t button);
+    void establishCommandAllGrab(uint8_t button);
     void resizeDecoration();
-    void createDecoration(const QRect &oldgeom);
+    void createDecoration(const QRect &oldgeom) override;
 
     void pingWindow();
     void killProcess(bool ask, xcb_timestamp_t timestamp = XCB_TIME_CURRENT_TIME);
     void updateUrgency();
     static void sendClientMessage(xcb_window_t w, xcb_atom_t a, xcb_atom_t protocol,
-                                  uint32_t data1 = 0, uint32_t data2 = 0, uint32_t data3 = 0,
-                                  xcb_timestamp_t timestamp = xTime());
+                                  uint32_t data1 = 0, uint32_t data2 = 0, uint32_t data3 = 0);
 
     void embedClient(xcb_window_t w, xcb_visualid_t visualid, xcb_colormap_t colormap, uint8_t depth);
     void detectNoBorder();
@@ -507,9 +469,7 @@ private:
     void setTransient(xcb_window_t new_transient_for_id);
     xcb_window_t m_transientForId;
     xcb_window_t m_originalTransientForId;
-    ShadeMode shade_mode;
     X11Client *shade_below;
-    uint deleting : 1; ///< True when doing cleanup and destroying the client
     Xcb::MotifHints m_motif;
     uint hidden : 1; ///< Forcibly hidden by calling hide()
     uint noborder : 1;
@@ -524,10 +484,7 @@ private:
 
     MaximizeMode max_mode;
     QRect m_bufferGeometry = QRect(0, 0, 100, 100);
-    QRect m_clientGeometry = QRect(0, 0, 100, 100);
-    QRect geom_restore;
     QRect geom_fs_restore;
-    QTimer* shadeHoverTimer;
     xcb_colormap_t m_colormap;
     QString cap_normal, cap_iconic, cap_suffix;
     Group* in_group;
@@ -612,21 +569,6 @@ inline bool X11Client::isHiddenInternal() const
     return hidden;
 }
 
-inline ShadeMode X11Client::shadeMode() const
-{
-    return shade_mode;
-}
-
-inline QRect X11Client::geometryRestore() const
-{
-    return geom_restore;
-}
-
-inline void X11Client::setGeometryRestore(const QRect &geo)
-{
-    geom_restore = geo;
-}
-
 inline MaximizeMode X11Client::maximizeMode() const
 {
     return max_mode;
@@ -657,19 +599,14 @@ inline bool X11Client::isManaged() const
     return m_managed;
 }
 
-inline QSize X11Client::clientSize() const
-{
-    return m_clientGeometry.size();
-}
-
 inline void X11Client::plainResize(const QSize& s, ForceGeometry_t force)
 {
     plainResize(s.width(), s.height(), force);
 }
 
-inline void X11Client::resizeWithChecks(int w, int h, AbstractClient::ForceGeometry_t force)
+inline void X11Client::resizeWithChecks(const QSize &s, AbstractClient::ForceGeometry_t force)
 {
-    resizeWithChecks(w, h, XCB_GRAVITY_BIT_FORGET, force);
+    resizeWithChecks(s.width(), s.height(), XCB_GRAVITY_BIT_FORGET, force);
 }
 
 inline void X11Client::resizeWithChecks(const QSize& s, xcb_gravity_t gravity, ForceGeometry_t force)
@@ -690,13 +627,6 @@ inline xcb_window_t X11Client::moveResizeGrabWindow() const
 inline bool X11Client::hiddenPreview() const
 {
     return mapping_state == Kept;
-}
-
-template <typename T>
-inline void X11Client::print(T &stream) const
-{
-    stream << "\'Client:" << window() << ";WMCLASS:" << resourceClass() << ":"
-           << resourceName() << ";Caption:" << caption() << "\'";
 }
 
 } // namespace

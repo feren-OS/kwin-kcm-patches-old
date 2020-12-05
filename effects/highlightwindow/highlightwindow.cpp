@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2009 Lucas Murray <lmurray@undefinedfire.com>
+    SPDX-FileCopyrightText: 2009 Lucas Murray <lmurray@undefinedfire.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #include "highlightwindow.h"
 
@@ -61,7 +50,7 @@ void HighlightWindowEffect::prePaintWindow(EffectWindow* w, WindowPrePaintData& 
     if (!m_highlightedWindows.isEmpty()) {
         // Initial fade out and changing highlight animation
         if (opacity == m_windowOpacity.end())
-            opacity = m_windowOpacity.insertMulti(w, 0.0f);
+            opacity = m_windowOpacity.insert(w, 0.0f);
         float oldOpacity = *opacity;
         if (m_highlightedWindows.contains(w))
             *opacity = qMin(1.0f, oldOpacity + time / m_fadeDuration);
@@ -250,7 +239,7 @@ void HighlightWindowEffect::prepareHighlighting()
     m_finishing = false;
     foreach (EffectWindow * w, effects->stackingOrder()) {
         if (!m_windowOpacity.contains(w))    // Just in case we are still finishing from last time
-            m_windowOpacity.insertMulti(w, isInitiallyHidden(w) ? 0.0 : 1.0);
+            m_windowOpacity.insert(w, isInitiallyHidden(w) ? 0.0 : 1.0);
         if (!m_highlightedWindows.isEmpty())
             m_highlightedWindows.at(0)->addRepaintFull();
     }

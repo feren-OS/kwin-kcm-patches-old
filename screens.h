@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_SCREENS_H
 #define KWIN_SCREENS_H
 
@@ -35,7 +24,6 @@ namespace KWin
 {
 class AbstractClient;
 class Platform;
-class OrientationSensor;
 
 class KWIN_EXPORT Screens : public QObject
 {
@@ -147,15 +135,8 @@ public:
 
     virtual Qt::ScreenOrientation orientation(int screen) const;
 
-    /**
-     * Provides access to the OrientationSensor. The OrientationSensor is controlled by the
-     * base implementation. The implementing subclass can use this to get notifications about
-     * changes of the orientation and current orientation. There is no need to enable/disable it,
-     * that is done by the base implementation
-     */
-    OrientationSensor *orientationSensor() const {
-        return m_orientationSensor;
-    }
+    int physicalDpiX(int screen) const;
+    int physicalDpiY(int screen) const;
 
 public Q_SLOTS:
     void reconfigure();
@@ -208,7 +189,6 @@ private:
     QTimer *m_changedTimer;
     KSharedConfig::Ptr m_config;
     QSize m_boundingSize;
-    OrientationSensor *m_orientationSensor;
     qreal m_maxScale;
 
     KWIN_SINGLETON(Screens)

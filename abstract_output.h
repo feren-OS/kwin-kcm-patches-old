@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright 2019 Roman Gilg <subdiff@gmail.com>
+    SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #ifndef KWIN_ABSTRACT_OUTPUT_H
 #define KWIN_ABSTRACT_OUTPUT_H
 
@@ -27,12 +16,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QSize>
 #include <QVector>
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class OutputChangeSet;
-}
 }
 
 namespace KWin
@@ -104,7 +90,7 @@ public:
     ~AbstractOutput() override;
 
     /**
-     * Returns the human readable name of this output.
+     * Returns a short identifiable name of this output.
      */
     virtual QString name() const = 0;
 
@@ -127,7 +113,7 @@ public:
      *
      * Default implementation does nothing
      */
-    virtual void applyChanges(const KWayland::Server::OutputChangeSet *changeSet);
+    virtual void applyChanges(const KWaylandServer::OutputChangeSet *changeSet);
 
     /**
      * Returns geometry of this output in device independent pixels.
@@ -174,6 +160,15 @@ public:
      * Returns @c true if the gamma ramp was successfully set.
      */
     virtual bool setGammaRamp(const GammaRamp &gamma);
+
+    /** Returns the resolution of the output.  */
+    virtual QSize pixelSize() const = 0;
+
+Q_SIGNALS:
+    /**
+     * This signal is emitted when the geometry of this output has changed.
+     */
+    void geometryChanged();
 
 private:
     Q_DISABLE_COPY(AbstractOutput)

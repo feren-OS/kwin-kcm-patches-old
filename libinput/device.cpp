@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2016 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2016 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "device.h"
 
 #include <QDBusConnection>
@@ -84,7 +73,8 @@ enum class ConfigKey {
     NaturalScroll,
     ScrollMethod,
     ScrollButton,
-    ClickMethod
+    ClickMethod,
+    ScrollFactor
 };
 
 struct ConfigData {
@@ -99,6 +89,10 @@ struct ConfigData {
     explicit ConfigData(QByteArray _key, void (Device::*_setter)(QString), QString (Device::*_defaultValue)() const = nullptr)
         : key(_key)
     { stringSetter.setter = _setter; stringSetter.defaultValue = _defaultValue; }
+
+    explicit ConfigData(QByteArray _key, void (Device::*_setter)(qreal), qreal (Device::*_defaultValue)() const = nullptr)
+        : key(_key)
+    { qrealSetter.setter = _setter; qrealSetter.defaultValue = _defaultValue; }
 
     QByteArray key;
 
@@ -115,6 +109,10 @@ struct ConfigData {
         void (Device::*setter)(QString) = nullptr;
         QString (Device::*defaultValue)() const;
     } stringSetter;
+    struct {
+        void (Device::*setter)(qreal) = nullptr;
+        qreal (Device::*defaultValue)() const;
+    } qrealSetter;
 };
 
 static const QMap<ConfigKey, ConfigData> s_configData {
@@ -131,7 +129,8 @@ static const QMap<ConfigKey, ConfigData> s_configData {
     {ConfigKey::NaturalScroll, ConfigData(QByteArrayLiteral("NaturalScroll"), &Device::setNaturalScroll, &Device::naturalScrollEnabledByDefault)},
     {ConfigKey::ScrollMethod, ConfigData(QByteArrayLiteral("ScrollMethod"), &Device::activateScrollMethodFromInt, &Device::defaultScrollMethodToInt)},
     {ConfigKey::ScrollButton, ConfigData(QByteArrayLiteral("ScrollButton"), &Device::setScrollButton, &Device::defaultScrollButton)},
-    {ConfigKey::ClickMethod, ConfigData(QByteArrayLiteral("ClickMethod"), &Device::setClickMethodFromInt, &Device::defaultClickMethodToInt)}
+    {ConfigKey::ClickMethod, ConfigData(QByteArrayLiteral("ClickMethod"), &Device::setClickMethodFromInt, &Device::defaultClickMethodToInt)},
+    {ConfigKey::ScrollFactor, ConfigData(QByteArrayLiteral("ScrollFactor"), &Device::setScrollFactor, &Device::scrollFactorDefault)}
 };
 
 namespace {
@@ -158,12 +157,7 @@ Device::Device(libinput_device *device, QObject *parent)
     , m_pointer(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_POINTER))
     , m_touch(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_TOUCH))
     , m_tabletTool(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_TABLET_TOOL))
-#if 0
-    // next libinput version
     , m_tabletPad(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_TABLET_PAD))
-#else
-    , m_tabletPad(false)
-#endif
     , m_supportsGesture(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_GESTURE))
     , m_switch(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_SWITCH))
     , m_lidSwitch(m_switch ? libinput_device_switch_has_switch(m_device, LIBINPUT_SWITCH_LID) : false)
@@ -205,6 +199,7 @@ Device::Device(libinput_device *device, QObject *parent)
     , m_scrollButton(libinput_device_config_scroll_get_button(m_device))
     , m_defaultPointerAcceleration(libinput_device_config_accel_get_default_speed(m_device))
     , m_pointerAcceleration(libinput_device_config_accel_get_speed(m_device))
+    , m_scrollFactor(scrollFactorDefault())
     , m_supportedPointerAccelerationProfiles(libinput_device_config_accel_get_profiles(m_device))
     , m_defaultPointerAccelerationProfile(libinput_device_config_accel_get_default_profile(m_device))
     , m_pointerAccelerationProfile(libinput_device_config_accel_get_profile(m_device))
@@ -306,6 +301,7 @@ void Device::loadConfiguration()
         readEntry(key, it.value().booleanSetter, true);
         readEntry(key, it.value().quint32Setter, 0);
         readEntry(key, it.value().stringSetter, "");
+        readEntry(key, it.value().qrealSetter, 1.0);
     };
 
     m_loading = false;
@@ -427,6 +423,16 @@ void Device::setLmrTapButtonMap(bool set)
     }
 }
 
+int Device::stripsCount() const
+{
+    return libinput_device_tablet_pad_get_num_strips(m_device);
+}
+
+int Device::ringsCount() const
+{
+    return libinput_device_tablet_pad_get_num_rings(m_device);
+}
+
 #define CONFIG(method, condition, function, variable, key) \
 void Device::method(bool set) \
 { \
@@ -470,6 +476,15 @@ CONFIG(setTapDragLock, false, tap_set_drag_lock_enabled, DRAG_LOCK, tapDragLock,
 CONFIG(setMiddleEmulation, m_supportsMiddleEmulation == false, middle_emulation_set_enabled, MIDDLE_EMULATION, middleEmulation, MiddleButtonEmulation)
 
 #undef CONFIG
+
+void Device::setScrollFactor(qreal factor)
+{
+    if (m_scrollFactor != factor) {
+        m_scrollFactor = factor;
+        writeEntry(ConfigKey::ScrollFactor, m_scrollFactor);
+        emit scrollFactorChanged();
+    }
+}
 
 void Device::setOrientation(Qt::ScreenOrientation orientation)
 {

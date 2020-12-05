@@ -1,35 +1,24 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2017 Martin Flöser <mgraesslin@kde.org>
-Copyright (C) 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2017 Martin Flöser <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2018 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "idle_inhibition.h"
+#include "abstract_client.h"
 #include "deleted.h"
-#include "xdgshellclient.h"
 #include "workspace.h"
 
-#include <KWayland/Server/idle_interface.h>
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/idle_interface.h>
+#include <KWaylandServer/surface_interface.h>
 
 #include <algorithm>
 #include <functional>
 
-using KWayland::Server::SurfaceInterface;
+using KWaylandServer::SurfaceInterface;
 
 namespace KWin
 {
@@ -44,19 +33,19 @@ IdleInhibition::IdleInhibition(IdleInterface *idle)
 
 IdleInhibition::~IdleInhibition() = default;
 
-void IdleInhibition::registerXdgShellClient(XdgShellClient *client)
+void IdleInhibition::registerClient(AbstractClient *client)
 {
     auto updateInhibit = [this, client] {
         update(client);
     };
 
     m_connections[client] = connect(client->surface(), &SurfaceInterface::inhibitsIdleChanged, this, updateInhibit);
-    connect(client, &XdgShellClient::desktopChanged, this, updateInhibit);
-    connect(client, &XdgShellClient::clientMinimized, this, updateInhibit);
-    connect(client, &XdgShellClient::clientUnminimized, this, updateInhibit);
-    connect(client, &XdgShellClient::windowHidden, this, updateInhibit);
-    connect(client, &XdgShellClient::windowShown, this, updateInhibit);
-    connect(client, &XdgShellClient::windowClosed, this,
+    connect(client, &AbstractClient::desktopChanged, this, updateInhibit);
+    connect(client, &AbstractClient::clientMinimized, this, updateInhibit);
+    connect(client, &AbstractClient::clientUnminimized, this, updateInhibit);
+    connect(client, &AbstractClient::windowHidden, this, updateInhibit);
+    connect(client, &AbstractClient::windowShown, this, updateInhibit);
+    connect(client, &AbstractClient::windowClosed, this,
         [this, client] {
             uninhibit(client);
             auto it = m_connections.find(client);

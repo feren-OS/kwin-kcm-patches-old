@@ -1,31 +1,18 @@
-/********************************************************************
-KWin - the KDE window manager
-This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2018 Martin Flöser <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2018 Martin Flöser <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "kwin_wayland_test.h"
 #include "x11client.h"
 #include "composite.h"
 #include "cursor.h"
 #include "effects.h"
 #include "effectloader.h"
-#include "cursor.h"
 #include "platform.h"
-#include "xdgshellclient.h"
 #include "wayland_server.h"
 #include "workspace.h"
 #include "effect_builtins.h"
@@ -56,11 +43,10 @@ private Q_SLOTS:
 
 void WobblyWindowsShadeTest::initTestCase()
 {
-    qRegisterMetaType<KWin::XdgShellClient *>();
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::Effect*>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
 
@@ -79,7 +65,7 @@ void WobblyWindowsShadeTest::initTestCase()
     qputenv("KWIN_COMPOSE", QByteArrayLiteral("O2"));
     qputenv("KWIN_EFFECTS_FORCE_ANIMATIONS", "1");
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QVERIFY(Compositor::self());
 
     auto scene = KWin::Compositor::self()->scene();
@@ -171,19 +157,19 @@ void WobblyWindowsShadeTest::testShadeMove()
 
     // send some key events, not going through input redirection
     client->keyPressEvent(Qt::Key_Right);
-    client->updateMoveResize(KWin::Cursor::pos());
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
 
     // wait for frame rendered
     QTest::qWait(100);
 
     client->keyPressEvent(Qt::Key_Right);
-    client->updateMoveResize(KWin::Cursor::pos());
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
 
     // wait for frame rendered
     QTest::qWait(100);
 
     client->keyPressEvent(Qt::Key_Down | Qt::ALT);
-    client->updateMoveResize(KWin::Cursor::pos());
+    client->updateMoveResize(KWin::Cursors::self()->mouse()->pos());
 
     // wait for frame rendered
     QTest::qWait(100);

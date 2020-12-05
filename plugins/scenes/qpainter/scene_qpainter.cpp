@@ -1,25 +1,14 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2013 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2013 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "scene_qpainter.h"
 // KWin
-#include "x11client.h"
+#include "abstract_client.h"
 #include "composite.h"
 #include "cursor.h"
 #include "deleted.h"
@@ -32,9 +21,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <kwineffectquickview.h>
 
-#include <KWayland/Server/buffer_interface.h>
-#include <KWayland/Server/subcompositor_interface.h>
-#include <KWayland/Server/surface_interface.h>
+#include <KWaylandServer/buffer_interface.h>
+#include <KWaylandServer/subcompositor_interface.h>
+#include <KWaylandServer/surface_interface.h>
 #include "decorations/decoratedclient.h"
 // Qt
 #include <QDebug>
@@ -82,7 +71,7 @@ bool SceneQPainter::initFailed() const
     return false;
 }
 
-void SceneQPainter::paintGenericScreen(int mask, ScreenPaintData data)
+void SceneQPainter::paintGenericScreen(int mask, const ScreenPaintData &data)
 {
     m_painter->save();
     m_painter->translate(data.xTranslation(), data.yTranslation());
@@ -91,12 +80,13 @@ void SceneQPainter::paintGenericScreen(int mask, ScreenPaintData data)
     m_painter->restore();
 }
 
-qint64 SceneQPainter::paint(QRegion damage, QList<Toplevel *> toplevels)
+qint64 SceneQPainter::paint(const QRegion &_damage, const QList<Toplevel *> &toplevels)
 {
     QElapsedTimer renderTimer;
     renderTimer.start();
 
     createStackingOrder(toplevels);
+    QRegion damage = _damage;
 
     int mask = 0;
     m_backend->prepareRenderingFrame();
@@ -120,7 +110,7 @@ qint64 SceneQPainter::paint(QRegion damage, QList<Toplevel *> toplevels)
             QRegion updateRegion, validRegion;
             paintScreen(&mask, damage.intersected(geometry), QRegion(), &updateRegion, &validRegion);
             overallUpdate = overallUpdate.united(updateRegion);
-            paintCursor();
+            paintCursor(updateRegion);
 
             m_painter->restore();
             m_painter->end();
@@ -138,7 +128,7 @@ qint64 SceneQPainter::paint(QRegion damage, QList<Toplevel *> toplevels)
         QRegion updateRegion, validRegion;
         paintScreen(&mask, damage, QRegion(), &updateRegion, &validRegion);
 
-        paintCursor();
+        paintCursor(updateRegion);
         m_backend->showOverlay();
 
         m_painter->end();
@@ -148,12 +138,10 @@ qint64 SceneQPainter::paint(QRegion damage, QList<Toplevel *> toplevels)
     // do cleanup
     clearStackingOrder();
 
-    emit frameRendered();
-
     return renderTimer.nsecsElapsed();
 }
 
-void SceneQPainter::paintBackground(QRegion region)
+void SceneQPainter::paintBackground(const QRegion &region)
 {
     m_painter->setBrush(Qt::black);
     for (const QRect &rect : region) {
@@ -161,19 +149,22 @@ void SceneQPainter::paintBackground(QRegion region)
     }
 }
 
-void SceneQPainter::paintCursor()
+void SceneQPainter::paintCursor(const QRegion &rendered)
 {
     if (!kwinApp()->platform()->usesSoftwareCursor()) {
         return;
     }
-    const QImage img = kwinApp()->platform()->softwareCursor();
+
+    Cursor* cursor = Cursors::self()->currentCursor();
+    const QImage img = cursor->image();
     if (img.isNull()) {
         return;
     }
-    const QPoint cursorPos = Cursor::pos();
-    const QPoint hotspot = kwinApp()->platform()->softwareCursorHotspot();
-    m_painter->drawImage(cursorPos - hotspot, img);
-    kwinApp()->platform()->markCursorAsRendered();
+
+    m_painter->save();
+    m_painter->setClipRegion(rendered.intersected(cursor->geometry()));
+    m_painter->drawImage(cursor->geometry(), img);
+    m_painter->restore();
 }
 
 void SceneQPainter::paintEffectQuickView(EffectQuickView *w)
@@ -225,26 +216,9 @@ SceneQPainter::Window::~Window()
 {
 }
 
-static void paintSubSurface(QPainter *painter, const QPoint &pos, QPainterWindowPixmap *pixmap)
+void SceneQPainter::Window::performPaint(int mask, const QRegion &_region, const WindowPaintData &data)
 {
-    QPoint p = pos;
-    if (!pixmap->subSurface().isNull()) {
-        p += pixmap->subSurface()->position();
-    }
-
-    painter->drawImage(QRect(pos, pixmap->size()), pixmap->image());
-    const auto &children = pixmap->children();
-    for (auto it = children.begin(); it != children.end(); ++it) {
-        auto pixmap = static_cast<QPainterWindowPixmap*>(*it);
-        if (pixmap->subSurface().isNull() || pixmap->subSurface()->surface().isNull() || !pixmap->subSurface()->surface()->isMapped()) {
-            continue;
-        }
-        paintSubSurface(painter, p, pixmap);
-    }
-}
-
-void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintData data)
-{
+    QRegion region = _region;
     if (!(mask & (PAINT_WINDOW_TRANSFORMED | PAINT_SCREEN_TRANSFORMED)))
         region &= toplevel->visibleRect();
 
@@ -254,10 +228,7 @@ void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintDa
     if (!pixmap || !pixmap->isValid()) {
         return;
     }
-    if (!toplevel->damage().isEmpty()) {
-        pixmap->updateBuffer();
-        toplevel->resetDamage();
-    }
+    toplevel->resetDamage();
 
     QPainter *scenePainter = m_scene->scenePainter();
     QPainter *painter = scenePainter;
@@ -285,28 +256,7 @@ void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintDa
     }
     renderShadow(painter);
     renderWindowDecorations(painter);
-
-    // render content
-    QRect source;
-    QRect target;
-    if (toplevel->isClient()) {
-        // special case for XWayland windows
-        source = QRect(toplevel->clientPos(), toplevel->clientSize());
-        target = source;
-    } else {
-        source = pixmap->image().rect();
-        target = toplevel->bufferGeometry().translated(-pos());
-    }
-    painter->drawImage(target, pixmap->image(), source);
-
-    // render subsurfaces
-    const auto &children = pixmap->children();
-    for (auto pixmap : children) {
-        if (pixmap->subSurface().isNull() || pixmap->subSurface()->surface().isNull() || !pixmap->subSurface()->surface()->isMapped()) {
-            continue;
-        }
-        paintSubSurface(painter, bufferOffset(), static_cast<QPainterWindowPixmap*>(pixmap));
-    }
+    renderWindowPixmap(painter, pixmap);
 
     if (!opaque) {
         tempPainter.restore();
@@ -320,6 +270,30 @@ void SceneQPainter::Window::performPaint(int mask, QRegion region, WindowPaintDa
     }
 
     painter->restore();
+}
+
+void SceneQPainter::Window::renderWindowPixmap(QPainter *painter, QPainterWindowPixmap *windowPixmap)
+{
+    const QRegion shape = windowPixmap->shape();
+    for (const QRectF rect : shape) {
+        const QPointF windowTopLeft = windowPixmap->mapToWindow(rect.topLeft());
+        const QPointF windowBottomRight = windowPixmap->mapToWindow(rect.bottomRight());
+
+        const QPointF bufferTopLeft = windowPixmap->mapToBuffer(rect.topLeft());
+        const QPointF bufferBottomRight = windowPixmap->mapToBuffer(rect.bottomRight());
+
+        painter->drawImage(QRectF(windowTopLeft, windowBottomRight),
+                           windowPixmap->image(),
+                           QRectF(bufferTopLeft, bufferBottomRight));
+    }
+
+    const QVector<WindowPixmap *> children = windowPixmap->children();
+    for (WindowPixmap *child : children) {
+        QPainterWindowPixmap *scenePixmap = static_cast<QPainterWindowPixmap *>(child);
+        if (scenePixmap->isValid()) {
+            renderWindowPixmap(painter, scenePixmap);
+        }
+    }
 }
 
 void SceneQPainter::Window::renderShadow(QPainter* painter)
@@ -399,7 +373,7 @@ QPainterWindowPixmap::QPainterWindowPixmap(Scene::Window *window)
 {
 }
 
-QPainterWindowPixmap::QPainterWindowPixmap(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface, WindowPixmap *parent)
+QPainterWindowPixmap::QPainterWindowPixmap(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface, WindowPixmap *parent)
     : WindowPixmap(subSurface, parent)
 {
 }
@@ -429,15 +403,15 @@ void QPainterWindowPixmap::create()
     }
 }
 
-WindowPixmap *QPainterWindowPixmap::createChild(const QPointer<KWayland::Server::SubSurfaceInterface> &subSurface)
+WindowPixmap *QPainterWindowPixmap::createChild(const QPointer<KWaylandServer::SubSurfaceInterface> &subSurface)
 {
     return new QPainterWindowPixmap(subSurface, this);
 }
 
-void QPainterWindowPixmap::updateBuffer()
+void QPainterWindowPixmap::update()
 {
     const auto oldBuffer = buffer();
-    WindowPixmap::updateBuffer();
+    WindowPixmap::update();
     const auto &b = buffer();
     if (!surface()) {
         // That's an internal client.
@@ -476,7 +450,7 @@ QPainterEffectFrame::~QPainterEffectFrame()
 {
 }
 
-void QPainterEffectFrame::render(QRegion region, double opacity, double frameOpacity)
+void QPainterEffectFrame::render(const QRegion &region, double opacity, double frameOpacity)
 {
     Q_UNUSED(region)
     Q_UNUSED(opacity)
@@ -780,14 +754,14 @@ bool SceneQPainterShadow::prepareBackend()
 
     QPainter painter;
     painter.begin(&image);
-    painter.drawPixmap(0, 0, topLeft);
-    painter.drawPixmap(topLeft.width(), 0, top);
-    painter.drawPixmap(width - topRight.width(), 0, topRight);
-    painter.drawPixmap(0, height - bottomLeft.height(), bottomLeft);
-    painter.drawPixmap(bottomLeft.width(), height - bottom.height(), bottom);
-    painter.drawPixmap(width - bottomRight.width(), height - bottomRight.height(), bottomRight);
-    painter.drawPixmap(0, topLeft.height(), left);
-    painter.drawPixmap(width - right.width(), topRight.height(), right);
+    painter.drawPixmap(0, 0, topLeft.width(), topLeft.height(), topLeft);
+    painter.drawPixmap(topLeft.width(), 0, top.width(), top.height(), top);
+    painter.drawPixmap(width - topRight.width(), 0, topRight.width(), topRight.height(), topRight);
+    painter.drawPixmap(0, height - bottomLeft.height(), bottomLeft.width(), bottomLeft.height(), bottomLeft);
+    painter.drawPixmap(bottomLeft.width(), height - bottom.height(), bottom.width(), bottom.height(), bottom);
+    painter.drawPixmap(width - bottomRight.width(), height - bottomRight.height(), bottomRight.width(), bottomRight.height(), bottomRight);
+    painter.drawPixmap(0, topLeft.height(), left.width(), left.height(), left);
+    painter.drawPixmap(width - right.width(), topRight.height(), right.width(), right.height(), right);
     painter.end();
 
     m_texture = image;

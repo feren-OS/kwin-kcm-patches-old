@@ -1,29 +1,24 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2014 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2014 Martin Gräßlin <mgraesslin@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "connection.h"
 #include "context.h"
 #include "device.h"
 #include "events.h"
+
+// TODO: Make it compile also in testing environment
 #ifndef KWIN_BUILD_TESTING
+#include "../abstract_wayland_output.h"
+#include "../main.h"
+#include "../platform.h"
 #include "../screens.h"
 #endif
+
 #include "../logind.h"
 #include "../udev.h"
 #include "libinput_logging.h"
@@ -244,6 +239,37 @@ void Connection::handleEvent()
     }
 }
 
+#ifndef KWIN_BUILD_TESTING
+QPointF devicePointToGlobalPosition(const QPointF &devicePos, const AbstractWaylandOutput *output)
+{
+    using Transform = AbstractWaylandOutput::Transform;
+
+    QPointF pos = devicePos;
+    // TODO: Do we need to handle the flipped cases differently?
+    switch (output->transform()) {
+    case Transform::Normal:
+    case Transform::Flipped:
+        break;
+    case Transform::Rotated90:
+    case Transform::Flipped90:
+        pos = QPointF(output->modeSize().height() - devicePos.y(), devicePos.x());
+        break;
+    case Transform::Rotated180:
+    case Transform::Flipped180:
+        pos = QPointF(output->modeSize().width() - devicePos.x(),
+                      output->modeSize().height() - devicePos.y());
+        break;
+    case Transform::Rotated270:
+    case Transform::Flipped270:
+        pos = QPointF(devicePos.y(), output->modeSize().width() - devicePos.x());
+        break;
+    default:
+        Q_UNREACHABLE();
+    }
+    return output->geometry().topLeft() + pos / output->scale();
+}
+#endif
+
 void Connection::processEvents()
 {
     QMutexLocker locker(&m_mutex);
@@ -385,8 +411,12 @@ void Connection::processEvents()
             case LIBINPUT_EVENT_TOUCH_DOWN: {
 #ifndef KWIN_BUILD_TESTING
                 TouchEvent *te = static_cast<TouchEvent*>(event.data());
-                const auto &geo = screens()->geometry(te->device()->screenId());
-                emit touchDown(te->id(), geo.topLeft() + te->absolutePos(geo.size()), te->time(), te->device());
+                const auto *output = static_cast<AbstractWaylandOutput*>(
+                            kwinApp()->platform()->enabledOutputs()[te->device()->screenId()]);
+                const QPointF globalPos =
+                        devicePointToGlobalPosition(te->absolutePos(output->modeSize()),
+                                                    output);
+                emit touchDown(te->id(), globalPos, te->time(), te->device());
                 break;
 #endif
             }
@@ -398,8 +428,12 @@ void Connection::processEvents()
             case LIBINPUT_EVENT_TOUCH_MOTION: {
 #ifndef KWIN_BUILD_TESTING
                 TouchEvent *te = static_cast<TouchEvent*>(event.data());
-                const auto &geo = screens()->geometry(te->device()->screenId());
-                emit touchMotion(te->id(), geo.topLeft() + te->absolutePos(geo.size()), te->time(), te->device());
+                const auto *output = static_cast<AbstractWaylandOutput*>(
+                            kwinApp()->platform()->enabledOutputs()[te->device()->screenId()]);
+                const QPointF globalPos =
+                        devicePointToGlobalPosition(te->absolutePos(output->modeSize()),
+                                                    output);
+                emit touchMotion(te->id(), globalPos, te->time(), te->device());
                 break;
 #endif
             }
@@ -483,12 +517,71 @@ void Connection::processEvents()
                 }
                 auto serial = libinput_tablet_tool_get_serial(tte->tool());
                 auto toolId = libinput_tablet_tool_get_tool_id(tte->tool());
+                auto type = libinput_tablet_tool_get_type(tte->tool());
+                InputRedirection::TabletToolType toolType;
+                switch (type) {
+                case LIBINPUT_TABLET_TOOL_TYPE_PEN:
+                    toolType = InputRedirection::Pen;
+                    break;
+                case LIBINPUT_TABLET_TOOL_TYPE_ERASER:
+                    toolType = InputRedirection::Eraser;
+                    break;
+                case LIBINPUT_TABLET_TOOL_TYPE_BRUSH:
+                    toolType = InputRedirection::Brush;
+                    break;
+                case LIBINPUT_TABLET_TOOL_TYPE_PENCIL:
+                    toolType = InputRedirection::Pencil;
+                    break;
+                case LIBINPUT_TABLET_TOOL_TYPE_AIRBRUSH:
+                    toolType = InputRedirection::Airbrush;
+                    break;
+                case LIBINPUT_TABLET_TOOL_TYPE_MOUSE:
+                    toolType = InputRedirection::Mouse;
+                    break;
+                case LIBINPUT_TABLET_TOOL_TYPE_LENS:
+                    toolType = InputRedirection::Lens;
+                    break;
+#ifdef LIBINPUT_HAS_TOTEM
+                case LIBINPUT_TABLET_TOOL_TYPE_TOTEM:
+                    toolType = InputRedirection::Totem;
+                    break;
+#endif
+                }
+                QVector<InputRedirection::Capability> capabilities;
+                if (libinput_tablet_tool_has_pressure(tte->tool())) {
+                    capabilities << InputRedirection::Pressure;
+                }
+                if (libinput_tablet_tool_has_distance(tte->tool())) {
+                    capabilities << InputRedirection::Distance;
+                }
+                if (libinput_tablet_tool_has_rotation(tte->tool())) {
+                    capabilities << InputRedirection::Rotation;
+                }
+                if (libinput_tablet_tool_has_tilt(tte->tool())) {
+                    capabilities << InputRedirection::Tilt;
+                }
+                if (libinput_tablet_tool_has_slider(tte->tool())) {
+                    capabilities << InputRedirection::Slider;
+                }
+                if (libinput_tablet_tool_has_wheel(tte->tool())) {
+                    capabilities << InputRedirection::Wheel;
+                }
 
+#ifndef KWIN_BUILD_TESTING
+                const auto *output = static_cast<AbstractWaylandOutput*>(
+                            kwinApp()->platform()->enabledOutputs()[tte->device()->screenId()]);
+                const QPointF globalPos =
+                        devicePointToGlobalPosition(tte->transformedPosition(output->modeSize()),
+                                                    output);
+#else
+                const QPointF globalPos;
+#endif
                 emit tabletToolEvent(tabletEventType,
-                                     tte->transformedPosition(m_size), tte->pressure(),
+                                     globalPos, tte->pressure(),
                                      tte->xTilt(), tte->yTilt(), tte->rotation(),
                                      tte->isTipDown(), tte->isNearby(), serial,
-                                     toolId, event->device());
+                                     toolId, toolType, capabilities, tte->time(),
+                                     event->device());
                 break;
             }
             case LIBINPUT_EVENT_TABLET_TOOL_BUTTON: {
@@ -616,6 +709,8 @@ void Connection::applyScreenToDevice(Device *device)
         }
     }
     device->setScreenId(id);
+
+    // TODO: this is currently non-functional even on DRM. Needs orientation() override there.
     device->setOrientation(screens()->orientation(id));
 #else
     Q_UNUSED(device)

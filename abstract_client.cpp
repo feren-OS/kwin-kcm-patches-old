@@ -1,23 +1,12 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2015 Martin Gräßlin <mgraesslin@kde.org>
-Copyright (C) 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+    SPDX-FileCopyrightText: 2015 Martin Gräßlin <mgraesslin@kde.org>
+    SPDX-FileCopyrightText: 2019 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 #include "abstract_client.h"
 
 #include "appmenu.h"
@@ -37,12 +26,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "workspace.h"
 
 #include "wayland_server.h"
-#include <KWayland/Server/plasmawindowmanagement_interface.h>
+#include <KWaylandServer/plasmawindowmanagement_interface.h>
 
 #include <KDecoration2/Decoration>
 
 #include <KDesktopFile>
 
+#include <QDir>
 #include <QMouseEvent>
 #include <QStyleHints>
 
@@ -64,10 +54,6 @@ AbstractClient::AbstractClient()
 #endif
     , m_colorScheme(QStringLiteral("kdeglobals"))
 {
-    connect(this, &AbstractClient::geometryShapeChanged, this, &AbstractClient::geometryChanged);
-    auto signalMaximizeChanged = static_cast<void (AbstractClient::*)(KWin::AbstractClient*, MaximizeMode)>(&AbstractClient::clientMaximizedStateChanged);
-    connect(this, signalMaximizeChanged, this, &AbstractClient::geometryChanged);
-    connect(this, &AbstractClient::clientStepUserMovedResized,   this, &AbstractClient::geometryChanged);
     connect(this, &AbstractClient::clientStartUserMovedResized,  this, &AbstractClient::moveResizedChanged);
     connect(this, &AbstractClient::clientFinishUserMovedResized, this, &AbstractClient::moveResizedChanged);
     connect(this, &AbstractClient::clientStartUserMovedResized,  this, &AbstractClient::removeCheckScreenConnection);
@@ -89,7 +75,7 @@ AbstractClient::AbstractClient()
     });
 
     // replace on-screen-display on size changes
-    connect(this, &AbstractClient::geometryShapeChanged, this,
+    connect(this, &AbstractClient::frameGeometryChanged, this,
         [this] (Toplevel *c, const QRect &old) {
             Q_UNUSED(c)
             if (isOnScreenDisplay() && !frameGeometry().isEmpty() && old.size() != frameGeometry().size() && !isInitialPositionSet()) {
@@ -133,11 +119,6 @@ bool AbstractClient::isTransient() const
 void AbstractClient::setClientShown(bool shown)
 {
     Q_UNUSED(shown)
-}
-
-MaximizeMode AbstractClient::requestedMaximizeMode() const
-{
-    return maximizeMode();
 }
 
 xcb_timestamp_t AbstractClient::userTime() const
@@ -209,6 +190,9 @@ void AbstractClient::setIcon(const QIcon &icon)
 
 void AbstractClient::setActive(bool act)
 {
+    if (isZombie()) {
+        return;
+    }
     if (m_active == act) {
         return;
     }
@@ -243,6 +227,18 @@ void AbstractClient::doSetActive()
 {
 }
 
+bool AbstractClient::isZombie() const
+{
+    return m_zombie;
+}
+
+void AbstractClient::markAsZombie()
+{
+    Q_ASSERT(!m_zombie);
+    m_zombie = true;
+    addWorkspaceRepaint(visibleRect());
+}
+
 Layer AbstractClient::layer() const
 {
     if (m_layer == UnknownLayer)
@@ -261,6 +257,14 @@ void AbstractClient::updateLayer()
         (*it)->updateLayer();
 }
 
+void AbstractClient::placeIn(const QRect &area)
+{
+    // TODO: Get rid of this method eventually. We need to call setGeometryRestore() because
+    // checkWorkspacePosition() operates on geometryRestore() and because of quick tiling.
+    Placement::self()->place(this, area);
+    setGeometryRestore(frameGeometry());
+}
+
 void AbstractClient::invalidateLayer()
 {
     m_layer = UnknownLayer;
@@ -274,6 +278,10 @@ Layer AbstractClient::belongsToLayer() const
     // ActiveLayer, so that active fullscreen windows will still cover everything)
     // Since the desktop is also activated, nothing should be in the ActiveLayer, though
     if (isInternal())
+        return UnmanagedLayer;
+    if (isLockScreen())
+        return UnmanagedLayer;
+    if (isInputMethod())
         return UnmanagedLayer;
     if (isDesktop())
         return workspace()->showingDesktop() ? AboveLayer : DesktopLayer;
@@ -326,19 +334,13 @@ void AbstractClient::setKeepAbove(bool b)
     if (b && !rules()->checkKeepBelow(false))
         setKeepBelow(false);
     if (b == keepAbove()) {
-        // force hint change if different
-        if (info && bool(info->state() & NET::KeepAbove) != keepAbove())
-            info->setState(keepAbove() ? NET::KeepAbove : NET::States(), NET::KeepAbove);
         return;
     }
     m_keepAbove = b;
-    if (info) {
-        info->setState(keepAbove() ? NET::KeepAbove : NET::States(), NET::KeepAbove);
-    }
+    doSetKeepAbove();
     workspace()->updateClientLayer(this);
     updateWindowRules(Rules::Above);
 
-    doSetKeepAbove();
     emit keepAboveChanged(m_keepAbove);
 }
 
@@ -352,19 +354,13 @@ void AbstractClient::setKeepBelow(bool b)
     if (b && !rules()->checkKeepAbove(false))
         setKeepAbove(false);
     if (b == keepBelow()) {
-        // force hint change if different
-        if (info && bool(info->state() & NET::KeepBelow) != keepBelow())
-            info->setState(keepBelow() ? NET::KeepBelow : NET::States(), NET::KeepBelow);
         return;
     }
     m_keepBelow = b;
-    if (info) {
-        info->setState(keepBelow() ? NET::KeepBelow : NET::States(), NET::KeepBelow);
-    }
+    doSetKeepBelow();
     workspace()->updateClientLayer(this);
     updateWindowRules(Rules::Below);
 
-    doSetKeepBelow();
     emit keepBelowChanged(m_keepBelow);
 }
 
@@ -393,6 +389,12 @@ void AbstractClient::autoRaise()
     cancelAutoRaise();
 }
 
+bool AbstractClient::isMostRecentlyRaised() const
+{
+    // The last toplevel in the unconstrained stacking order is the most recently raised one.
+    return workspace()->topClientOnDesktop(VirtualDesktopManager::self()->current(), -1, true, false) == this;
+}
+
 bool AbstractClient::wantsTabFocus() const
 {
     return (isNormalWindow() || isDialog()) && wantsInput();
@@ -411,11 +413,13 @@ void AbstractClient::demandAttention(bool set)
     if (m_demandsAttention == set)
         return;
     m_demandsAttention = set;
-    if (info) {
-        info->setState(set ? NET::DemandsAttention : NET::States(), NET::DemandsAttention);
-    }
+    doSetDemandsAttention();
     workspace()->clientAttentionChanged(this, set);
     emit demandsAttentionChanged();
+}
+
+void AbstractClient::doSetDemandsAttention()
+{
 }
 
 void AbstractClient::setDesktop(int desktop)
@@ -489,7 +493,7 @@ void AbstractClient::setDesktops(QVector<VirtualDesktop*> desktops)
         c2->setDesktops(desktops);
     }
 
-    doSetDesktop(desktop(), was_desk);
+    doSetDesktop();
 
     FocusChain::self()->update(this, FocusChain::MakeFirst);
     updateWindowRules(Rules::Desktop);
@@ -500,10 +504,8 @@ void AbstractClient::setDesktops(QVector<VirtualDesktop*> desktops)
     emit x11DesktopIdsChanged();
 }
 
-void AbstractClient::doSetDesktop(int desktop, int was_desk)
+void AbstractClient::doSetDesktop()
 {
-    Q_UNUSED(desktop)
-    Q_UNUSED(was_desk)
 }
 
 void AbstractClient::enterDesktop(VirtualDesktop *virtualDesktop)
@@ -558,6 +560,11 @@ QVector<uint> AbstractClient::x11DesktopIds() const
     return x11Ids;
 }
 
+ShadeMode AbstractClient::shadeMode() const
+{
+    return m_shadeMode;
+}
+
 bool AbstractClient::isShadeable() const
 {
     return false;
@@ -570,12 +577,85 @@ void AbstractClient::setShade(bool set)
 
 void AbstractClient::setShade(ShadeMode mode)
 {
-    Q_UNUSED(mode)
+    if (!isShadeable())
+        return;
+    if (mode == ShadeHover && isMove())
+        return; // causes geometry breaks and is probably nasty
+    if (isSpecialWindow() || noBorder())
+        mode = ShadeNone;
+
+    mode = rules()->checkShade(mode);
+    if (m_shadeMode == mode)
+        return;
+
+    const bool wasShade = isShade();
+    const ShadeMode previousShadeMode = shadeMode();
+    m_shadeMode = mode;
+
+    if (wasShade == isShade()) {
+        // Decoration may want to update after e.g. hover-shade changes
+        emit shadeChanged();
+        return; // No real change in shaded state
+    }
+
+    Q_ASSERT(isDecorated());
+    GeometryUpdatesBlocker blocker(this);
+
+    doSetShade(previousShadeMode);
+
+    discardWindowPixmap();
+    updateWindowRules(Rules::Shade);
+
+    emit shadeChanged();
 }
 
-ShadeMode AbstractClient::shadeMode() const
+void AbstractClient::doSetShade(ShadeMode previousShadeMode)
 {
-    return ShadeNone;
+    Q_UNUSED(previousShadeMode)
+}
+
+void AbstractClient::shadeHover()
+{
+    setShade(ShadeHover);
+    cancelShadeHoverTimer();
+}
+
+void AbstractClient::shadeUnhover()
+{
+    setShade(ShadeNormal);
+    cancelShadeHoverTimer();
+}
+
+void AbstractClient::startShadeHoverTimer()
+{
+    if (!isShade())
+        return;
+    m_shadeHoverTimer = new QTimer(this);
+    connect(m_shadeHoverTimer, &QTimer::timeout, this, &AbstractClient::shadeHover);
+    m_shadeHoverTimer->setSingleShot(true);
+    m_shadeHoverTimer->start(options->shadeHoverInterval());
+}
+
+void AbstractClient::startShadeUnhoverTimer()
+{
+    if (m_shadeMode == ShadeHover && !isMoveResize() && !isMoveResizePointerButtonDown()) {
+        m_shadeHoverTimer = new QTimer(this);
+        connect(m_shadeHoverTimer, &QTimer::timeout, this, &AbstractClient::shadeUnhover);
+        m_shadeHoverTimer->setSingleShot(true);
+        m_shadeHoverTimer->start(options->shadeHoverInterval());
+    }
+}
+
+void AbstractClient::cancelShadeHoverTimer()
+{
+    delete m_shadeHoverTimer;
+    m_shadeHoverTimer = nullptr;
+}
+
+void AbstractClient::toggleShade()
+{
+    // If the mode is ShadeHover or ShadeActive, cancel shade too.
+    setShade(shadeMode() == ShadeNone ? ShadeNormal : ShadeNone);
 }
 
 AbstractClient::Position AbstractClient::titlebarPosition() const
@@ -619,15 +699,10 @@ void AbstractClient::minimize(bool avoid_animation)
     if (!isMinimizable() || isMinimized())
         return;
 
-    if (isShade() && info) // NETWM restriction - KWindowInfo::isMinimized() == Hidden && !Shaded
-        info->setState(NET::States(), NET::Shaded);
-
     m_minimized = true;
-
     doMinimize();
 
     updateWindowRules(Rules::Minimize);
-    FocusChain::self()->update(this, FocusChain::MakeFirstMinimized);
     // TODO: merge signal with s_minimized
     addWorkspaceRepaint(visibleRect());
     emit clientMinimized(this, !avoid_animation);
@@ -643,11 +718,7 @@ void AbstractClient::unminimize(bool avoid_animation)
         return;
     }
 
-    if (isShade() && info) // NETWM restriction - KWindowInfo::isMinimized() == Hidden && !Shaded
-        info->setState(NET::Shaded, NET::Shaded);
-
     m_minimized = false;
-
     doMinimize();
 
     updateWindowRules(Rules::Minimize);
@@ -672,14 +743,25 @@ const Decoration::DecorationPalette *AbstractClient::decorationPalette() const
     return m_palette.get();
 }
 
-void AbstractClient::updateColorScheme(QString path)
+QString AbstractClient::preferredColorScheme() const
 {
-    if (path.isEmpty()) {
-        path = QStringLiteral("kdeglobals");
+    return rules()->checkDecoColor(QString());
+}
+
+QString AbstractClient::colorScheme() const
+{
+    return m_colorScheme;
+}
+
+void AbstractClient::setColorScheme(const QString &colorScheme)
+{
+    QString requestedColorScheme = colorScheme;
+    if (requestedColorScheme.isEmpty()) {
+        requestedColorScheme = QStringLiteral("kdeglobals");
     }
 
-    if (!m_palette || m_colorScheme != path) {
-        m_colorScheme = path;
+    if (!m_palette || m_colorScheme != requestedColorScheme) {
+        m_colorScheme = requestedColorScheme;
 
         if (m_palette) {
             disconnect(m_palette.get(), &Decoration::DecorationPalette::changed, this, &AbstractClient::handlePaletteChange);
@@ -714,6 +796,11 @@ void AbstractClient::updateColorScheme(QString path)
     }
 }
 
+void AbstractClient::updateColorScheme()
+{
+    setColorScheme(preferredColorScheme());
+}
+
 void AbstractClient::handlePaletteChange()
 {
     emit paletteChanged(palette());
@@ -731,7 +818,7 @@ void AbstractClient::keepInArea(QRect area, bool partial)
     if (!partial) {
         // resize to fit into area
         if (area.width() < width() || area.height() < height())
-            resizeWithChecks(qMin(area.width(), width()), qMin(area.height(), height()));
+            resizeWithChecks(size().boundedTo(area.size()));
     }
     int tx = x(), ty = y();
     if (frameGeometry().right() > area.right() && width() <= area.width())
@@ -748,11 +835,17 @@ void AbstractClient::keepInArea(QRect area, bool partial)
         move(tx, ty);
 }
 
+/**
+ * Returns the maximum client size, not the maximum frame size.
+ */
 QSize AbstractClient::maxSize() const
 {
     return rules()->checkMaxSize(QSize(INT_MAX, INT_MAX));
 }
 
+/**
+ * Returns the minimum client size, not the minimum frame size.
+ */
 QSize AbstractClient::minSize() const
 {
     return rules()->checkMinSize(QSize(0, 0));
@@ -785,7 +878,7 @@ void AbstractClient::maximize(MaximizeMode m)
 void AbstractClient::setMaximize(bool vertically, bool horizontally)
 {
     // changeMaximize() flips the state, so change from set->flip
-    const MaximizeMode oldMode = maximizeMode();
+    const MaximizeMode oldMode = requestedMaximizeMode();
     changeMaximize(
         oldMode & MaximizeHorizontal ? !horizontally : horizontally,
         oldMode & MaximizeVertical ? !vertically : vertically,
@@ -817,14 +910,19 @@ void AbstractClient::move(int x, int y, ForceGeometry_t force)
             setPendingGeometryUpdate(PendingGeometryNormal);
         return;
     }
+    const QRect oldBufferGeometry = bufferGeometryBeforeUpdateBlocking();
+    const QRect oldClientGeometry = clientGeometryBeforeUpdateBlocking();
+    const QRect oldFrameGeometry = frameGeometryBeforeUpdateBlocking();
     doMove(x, y);
+    updateGeometryBeforeUpdateBlocking();
     updateWindowRules(Rules::Position);
     screens()->setCurrent(this);
     workspace()->updateStackingOrder();
     // client itself is not damaged
+    emit bufferGeometryChanged(this, oldBufferGeometry);
+    emit clientGeometryChanged(this, oldClientGeometry);
+    emit frameGeometryChanged(this, oldFrameGeometry);
     addRepaintDuringGeometryUpdates();
-    updateGeometryBeforeUpdateBlocking();
-    emit geometryChanged();
 }
 
 bool AbstractClient::startMoveResize()
@@ -858,6 +956,7 @@ bool AbstractClient::startMoveResize()
         // Exit quick tile mode when the user attempts to resize a tiled window
         updateQuickTileMode(QuickTileFlag::None); // Do so without restoring original geometry
         setGeometryRestore(frameGeometry());
+        doSetQuickTileMode();
         emit quickTileModeChanged();
     }
 
@@ -875,6 +974,8 @@ void AbstractClient::finishMoveResize(bool cancel)
     GeometryUpdatesBlocker blocker(this);
     const bool wasResize = isResize(); // store across leaveMoveResize
     leaveMoveResize();
+
+    doFinishMoveResize();
 
     if (cancel)
         setFrameGeometry(initialMoveResizeGeometry());
@@ -962,7 +1063,7 @@ void AbstractClient::checkUnrestrictedMoveResize()
     }
 }
 
-// When the user pressed mouse on the titlebar, don't activate move immediatelly,
+// When the user pressed mouse on the titlebar, don't activate move immediately,
 // since it may be just a click. Activate instead after a delay. Move used to be
 // activated only after moving by several pixels, but that looks bad.
 void AbstractClient::startDelayedMoveResize()
@@ -1081,8 +1182,8 @@ void AbstractClient::handleMoveResize(int x, int y, int x_root, int y_root)
     bool update = false;
     if (isResize()) {
         QRect orig = initialMoveResizeGeometry();
-        Sizemode sizemode = SizemodeAny;
-        auto calculateMoveResizeGeom = [this, &topleft, &bottomright, &orig, &sizemode, &mode]() {
+        SizeMode sizeMode = SizeModeAny;
+        auto calculateMoveResizeGeom = [this, &topleft, &bottomright, &orig, &sizeMode, &mode]() {
             switch(mode) {
             case PositionTopLeft:
                 setMoveResizeGeometry(QRect(topleft, orig.bottomRight()));
@@ -1098,19 +1199,19 @@ void AbstractClient::handleMoveResize(int x, int y, int x_root, int y_root)
                 break;
             case PositionTop:
                 setMoveResizeGeometry(QRect(QPoint(orig.left(), topleft.y()), orig.bottomRight()));
-                sizemode = SizemodeFixedH; // try not to affect height
+                sizeMode = SizeModeFixedH; // try not to affect height
                 break;
             case PositionBottom:
                 setMoveResizeGeometry(QRect(orig.topLeft(), QPoint(orig.right(), bottomright.y())));
-                sizemode = SizemodeFixedH;
+                sizeMode = SizeModeFixedH;
                 break;
             case PositionLeft:
                 setMoveResizeGeometry(QRect(QPoint(topleft.x(), orig.top()), orig.bottomRight()));
-                sizemode = SizemodeFixedW;
+                sizeMode = SizeModeFixedW;
                 break;
             case PositionRight:
                 setMoveResizeGeometry(QRect(orig.topLeft(), QPoint(bottomright.x(), orig.bottom())));
-                sizemode = SizemodeFixedW;
+                sizeMode = SizeModeFixedW;
                 break;
             case PositionCenter:
             default:
@@ -1211,7 +1312,7 @@ void AbstractClient::handleMoveResize(int x, int y, int x_root, int y_root)
         }
 
         // Always obey size hints, even when in "unrestricted" mode
-        QSize size = adjustedSize(moveResizeGeometry().size(), sizemode);
+        QSize size = constrainFrameSize(moveResizeGeometry().size(), sizeMode);
         // the new topleft and bottomright corners (after checking size constrains), if they'll be needed
         topleft = QPoint(moveResizeGeometry().right() - size.width() + 1, moveResizeGeometry().bottom() - size.height() + 1);
         bottomright = QPoint(moveResizeGeometry().left() + size.width() - 1, moveResizeGeometry().top() + size.height() - 1);
@@ -1220,9 +1321,9 @@ void AbstractClient::handleMoveResize(int x, int y, int x_root, int y_root)
         // if aspect ratios are specified, both dimensions may change.
         // Therefore grow to the right/bottom if needed.
         // TODO it should probably obey gravity rather than always using right/bottom ?
-        if (sizemode == SizemodeFixedH)
+        if (sizeMode == SizeModeFixedH)
             orig.setRight(bottomright.x());
-        else if (sizemode == SizemodeFixedW)
+        else if (sizeMode == SizeModeFixedW)
             orig.setBottom(bottomright.y());
 
         calculateMoveResizeGeom();
@@ -1238,7 +1339,7 @@ void AbstractClient::handleMoveResize(int x, int y, int x_root, int y_root)
                 setMoveResizeGeometry(workspace()->clientArea(FullScreenArea, screen, 0));
             else {
                 QRect moveResizeGeom = workspace()->clientArea(MaximizeArea, screen, 0);
-                QSize adjSize = adjustedSize(moveResizeGeom.size(), SizemodeMax);
+                QSize adjSize = constrainFrameSize(moveResizeGeom.size(), SizeModeMax);
                 if (adjSize != moveResizeGeom.size()) {
                     QRect r(moveResizeGeom);
                     moveResizeGeom.setSize(adjSize);
@@ -1342,10 +1443,24 @@ void AbstractClient::performMoveResize()
         setFrameGeometry(moveResizeGeom);
     }
     doPerformMoveResize();
-    if (isResize())
-        addRepaintFull();
     positionGeometryTip();
     emit clientStepUserMovedResized(this, moveResizeGeom);
+}
+
+StrutRect AbstractClient::strutRect(StrutArea area) const
+{
+    Q_UNUSED(area)
+    return StrutRect();
+}
+
+StrutRects AbstractClient::strutRects() const
+{
+    StrutRects region;
+    region += strutRect(StrutAreaTop);
+    region += strutRect(StrutAreaRight);
+    region += strutRect(StrutAreaBottom);
+    region += strutRect(StrutAreaLeft);
+    return region;
 }
 
 bool AbstractClient::hasStrut() const
@@ -1365,8 +1480,8 @@ void AbstractClient::setupWindowManagementInterface()
     if (!waylandServer()->windowManagement()) {
         return;
     }
-    using namespace KWayland::Server;
-    auto w = waylandServer()->windowManagement()->createWindow(waylandServer()->windowManagement());
+    using namespace KWaylandServer;
+    auto w = waylandServer()->windowManagement()->createWindow(waylandServer()->windowManagement(), internalId());
     w->setTitle(caption());
     w->setVirtualDesktop(isOnAllDesktops() ? 0 : desktop() - 1);
     w->setActive(isActive());
@@ -1381,6 +1496,7 @@ void AbstractClient::setupWindowManagementInterface()
     w->setMaximizeable(isMaximizable());
     w->setMinimizeable(isMinimizable());
     w->setFullscreenable(isFullScreenable());
+    w->setApplicationMenuPaths(applicationMenuServiceName(), applicationMenuObjectPath());
     w->setIcon(icon());
     auto updateAppId = [this, w] {
         w->setAppId(QString::fromUtf8(m_desktopFileName.isEmpty() ? resourceClass() : m_desktopFileName));
@@ -1433,22 +1549,27 @@ void AbstractClient::setupWindowManagementInterface()
             w->setParentWindow(transientFor() ? transientFor()->windowManagementInterface() : nullptr);
         }
     );
-    connect(this, &AbstractClient::geometryChanged, w,
+    connect(this, &AbstractClient::frameGeometryChanged, w,
         [w, this] {
             w->setGeometry(frameGeometry());
+        }
+    );
+    connect(this, &AbstractClient::applicationMenuChanged, w,
+        [w, this] {
+            w->setApplicationMenuPaths(applicationMenuServiceName(), applicationMenuObjectPath());
         }
     );
     connect(w, &PlasmaWindowInterface::closeRequested, this, [this] { closeWindow(); });
     connect(w, &PlasmaWindowInterface::moveRequested, this,
         [this] {
-            Cursor::setPos(frameGeometry().center());
-            performMouseCommand(Options::MouseMove, Cursor::pos());
+            Cursors::self()->mouse()->setPos(frameGeometry().center());
+            performMouseCommand(Options::MouseMove, Cursors::self()->mouse()->pos());
         }
     );
     connect(w, &PlasmaWindowInterface::resizeRequested, this,
         [this] {
-            Cursor::setPos(frameGeometry().bottomRight());
-            performMouseCommand(Options::MouseResize, Cursor::pos());
+            Cursors::self()->mouse()->setPos(frameGeometry().bottomRight());
+            performMouseCommand(Options::MouseResize, Cursors::self()->mouse()->pos());
         }
     );
     connect(w, &PlasmaWindowInterface::virtualDesktopRequested, this,
@@ -1562,7 +1683,7 @@ Options::MouseCommand AbstractClient::getMouseCommand(Qt::MouseButton button, bo
         return Options::MouseNothing;
     }
     if (isActive()) {
-        if (options->isClickRaise()) {
+        if (options->isClickRaise() && !isMostRecentlyRaised()) {
             *handled = true;
             return Options::MouseActivateRaiseAndPassClick;
         }
@@ -1756,6 +1877,18 @@ bool AbstractClient::performMouseCommand(Options::MouseCommand cmd, const QPoint
         updateCursor();
         break;
     }
+    case Options::MouseShade:
+        toggleShade();
+        cancelShadeHoverTimer();
+        break;
+    case Options::MouseSetShade:
+        setShade(ShadeNormal);
+        cancelShadeHoverTimer();
+        break;
+    case Options::MouseUnsetShade:
+        setShade(ShadeNone);
+        cancelShadeHoverTimer();
+        break;
     case Options::MouseNothing:
     default:
         replay = true;
@@ -1882,13 +2015,6 @@ BORDER(Right)
 BORDER(Top)
 #undef BORDER
 
-QSize AbstractClient::sizeForClientSize(const QSize &wsize, Sizemode mode, bool noframe) const
-{
-    Q_UNUSED(mode)
-    Q_UNUSED(noframe)
-    return wsize + QSize(borderLeft() + borderRight(), borderTop() + borderBottom());
-}
-
 void AbstractClient::addRepaintDuringGeometryUpdates()
 {
     const QRect deco_rect = visibleRect();
@@ -1907,10 +2033,16 @@ QRect AbstractClient::frameGeometryBeforeUpdateBlocking() const
     return m_frameGeometryBeforeUpdateBlocking;
 }
 
+QRect AbstractClient::clientGeometryBeforeUpdateBlocking() const
+{
+    return m_clientGeometryBeforeUpdateBlocking;
+}
+
 void AbstractClient::updateGeometryBeforeUpdateBlocking()
 {
     m_bufferGeometryBeforeUpdateBlocking = bufferGeometry();
     m_frameGeometryBeforeUpdateBlocking = frameGeometry();
+    m_clientGeometryBeforeUpdateBlocking = clientGeometry();
 }
 
 void AbstractClient::doMove(int, int)
@@ -1990,6 +2122,10 @@ void AbstractClient::updateHaveResizeEffect()
 bool AbstractClient::doStartMoveResize()
 {
     return true;
+}
+
+void AbstractClient::doFinishMoveResize()
+{
 }
 
 void AbstractClient::positionGeometryTip()
@@ -2078,7 +2214,7 @@ void AbstractClient::keyPressEvent(uint key_code)
     bool is_alt = key_code & Qt::ALT;
     key_code = key_code & ~Qt::KeyboardModifierMask;
     int delta = is_control ? 1 : is_alt ? 32 : 8;
-    QPoint pos = Cursor::pos();
+    QPoint pos = Cursors::self()->mouse()->pos();
     switch(key_code) {
     case Qt::Key_Left:
         pos.rx() -= delta;
@@ -2107,7 +2243,7 @@ void AbstractClient::keyPressEvent(uint key_code)
     default:
         return;
     }
-    Cursor::setPos(pos);
+    Cursors::self()->mouse()->setPos(pos);
 }
 
 QSize AbstractClient::resizeIncrements() const
@@ -2159,6 +2295,27 @@ void AbstractClient::endMoveResize()
         setMoveResizePointerMode(mousePosition());
     }
     updateCursor();
+}
+
+void AbstractClient::createDecoration(const QRect &oldGeometry)
+{
+    KDecoration2::Decoration *decoration = Decoration::DecorationBridge::self()->createDecoration(this);
+    if (decoration) {
+        QMetaObject::invokeMethod(decoration, "update", Qt::QueuedConnection);
+        connect(decoration, &KDecoration2::Decoration::shadowChanged, this, &Toplevel::updateShadow);
+        connect(decoration, &KDecoration2::Decoration::bordersChanged, this, [this]() {
+            GeometryUpdatesBlocker blocker(this);
+            const QRect oldGeometry = frameGeometry();
+            if (!isShade()) {
+                checkWorkspacePosition(oldGeometry);
+            }
+            emit geometryShapeChanged(this, oldGeometry);
+        });
+    }
+    setDecoration(decoration);
+    setFrameGeometry(QRect(oldGeometry.topLeft(), clientSizeToFrameSize(clientSize())));
+
+    emit geometryShapeChanged(this, oldGeometry);
 }
 
 void AbstractClient::destroyDecoration()
@@ -2240,7 +2397,7 @@ bool AbstractClient::processDecorationButtonPress(QMouseEvent *event, bool ignor
 
     if (event->button() == Qt::LeftButton)
         com = active ? options->commandActiveTitlebar1() : options->commandInactiveTitlebar1();
-    else if (event->button() == Qt::MidButton)
+    else if (event->button() == Qt::MiddleButton)
         com = active ? options->commandActiveTitlebar2() : options->commandInactiveTitlebar2();
     else if (event->button() == Qt::RightButton)
         com = active ? options->commandActiveTitlebar3() : options->commandInactiveTitlebar3();
@@ -2321,7 +2478,11 @@ void AbstractClient::setDecoratedClient(QPointer< Decoration::DecoratedClientImp
 
 void AbstractClient::enterEvent(const QPoint &globalPos)
 {
-    // TODO: shade hover
+    if (options->isShadeHover()) {
+        cancelShadeHoverTimer();
+        startShadeHoverTimer();
+    }
+
     if (options->focusPolicy() == Options::ClickToFocus || workspace()->userActionsMenu()->isShown())
         return;
 
@@ -2347,7 +2508,8 @@ void AbstractClient::leaveEvent()
 {
     cancelAutoRaise();
     workspace()->cancelDelayFocus();
-    // TODO: shade hover
+    cancelShadeHoverTimer();
+    startShadeUnhoverTimer();
     // TODO: send hover leave to deco
     // TODO: handle Options::FocusStrictlyUnderMouse
 }
@@ -2364,7 +2526,7 @@ QRect AbstractClient::iconGeometry() const
     QRect candidateGeom;
 
     for (auto i = windowManagementInterface()->minimizedGeometries().constBegin(), end = windowManagementInterface()->minimizedGeometries().constEnd(); i != end; ++i) {
-        AbstractClient *client = waylandServer()->findAbstractClient(i.key());
+        AbstractClient *client = waylandServer()->findClient(i.key());
         if (!client) {
             continue;
         }
@@ -2426,6 +2588,16 @@ void AbstractClient::setVirtualKeyboardGeometry(const QRect &geo)
     setFrameGeometry(newWindowGeometry);
 }
 
+QRect AbstractClient::keyboardGeometryRestore() const
+{
+    return m_keyboardGeometryRestore;
+}
+
+void AbstractClient::setKeyboardGeometryRestore(const QRect &geom)
+{
+    m_keyboardGeometryRestore = geom;
+}
+
 bool AbstractClient::dockWantsInput() const
 {
     return false;
@@ -2445,13 +2617,26 @@ void AbstractClient::setDesktopFileName(QByteArray name)
 QString AbstractClient::iconFromDesktopFile() const
 {
     if (m_desktopFileName.isEmpty()) {
-        return QString();
+        return {};
     }
-    QString desktopFile = QString::fromUtf8(m_desktopFileName);
-    if (!desktopFile.endsWith(QLatin1String(".desktop"))) {
-        desktopFile.append(QLatin1String(".desktop"));
+
+    const QString desktopFileName = QString::fromUtf8(m_desktopFileName);
+    QString desktopFilePath;
+
+    if (QDir::isAbsolutePath(desktopFileName)) {
+        desktopFilePath = desktopFileName;
     }
-    KDesktopFile df(desktopFile);
+
+    if (desktopFilePath.isEmpty()) {
+        desktopFilePath = QStandardPaths::locate(QStandardPaths::ApplicationsLocation,
+                                                 desktopFileName);
+    }
+    if (desktopFilePath.isEmpty()) {
+        desktopFilePath = QStandardPaths::locate(QStandardPaths::ApplicationsLocation,
+                                                 desktopFileName + QLatin1String(".desktop"));
+    }
+
+    KDesktopFile df(desktopFilePath);
     return df.readIcon();
 }
 
@@ -2468,6 +2653,7 @@ void AbstractClient::updateApplicationMenuServiceName(const QString &serviceName
 
     const bool new_hasApplicationMenu = hasApplicationMenu();
 
+    emit applicationMenuChanged();
     if (old_hasApplicationMenu != new_hasApplicationMenu) {
         emit hasApplicationMenuChanged(new_hasApplicationMenu);
     }
@@ -2481,6 +2667,7 @@ void AbstractClient::updateApplicationMenuObjectPath(const QString &objectPath)
 
     const bool new_hasApplicationMenu = hasApplicationMenu();
 
+    emit applicationMenuChanged();
     if (old_hasApplicationMenu != new_hasApplicationMenu) {
         emit hasApplicationMenuChanged(new_hasApplicationMenu);
     }
@@ -2592,7 +2779,7 @@ bool AbstractClient::isInternal() const
 
 bool AbstractClient::supportsWindowRules() const
 {
-    return true;
+    return false;
 }
 
 QMargins AbstractClient::frameMargins() const
@@ -2654,7 +2841,7 @@ void AbstractClient::setElectricBorderMaximizing(bool maximizing)
 {
     m_electricMaximizing = maximizing;
     if (maximizing)
-        outline()->show(electricBorderMaximizeGeometry(Cursor::pos(), desktop()), moveResizeGeometry());
+        outline()->show(electricBorderMaximizeGeometry(Cursors::self()->mouse()->pos(), desktop()), moveResizeGeometry());
     else
         outline()->hide();
     elevate(maximizing);
@@ -2689,7 +2876,7 @@ void AbstractClient::setQuickTileMode(QuickTileMode mode, bool keyboard)
         return;
     }
 
-    workspace()->updateFocusMousePosition(Cursor::pos()); // may cause leave event
+    workspace()->updateFocusMousePosition(Cursors::self()->mouse()->pos()); // may cause leave event
 
     GeometryUpdatesBlocker blocker(this);
 
@@ -2709,6 +2896,7 @@ void AbstractClient::setQuickTileMode(QuickTileMode mode, bool keyboard)
             }
             setGeometryRestore(prev_geom_restore);
         }
+        doSetQuickTileMode();
         emit quickTileModeChanged();
         return;
     }
@@ -2731,7 +2919,7 @@ void AbstractClient::setQuickTileMode(QuickTileMode mode, bool keyboard)
 
             setMaximize(false, false);
 
-            setFrameGeometry(electricBorderMaximizeGeometry(keyboard ? frameGeometry().center() : Cursor::pos(), desktop()), geom_mode);
+            setFrameGeometry(electricBorderMaximizeGeometry(keyboard ? frameGeometry().center() : Cursors::self()->mouse()->pos(), desktop()), geom_mode);
             // Store the mode change
             m_quickTileMode = mode;
         } else {
@@ -2739,13 +2927,14 @@ void AbstractClient::setQuickTileMode(QuickTileMode mode, bool keyboard)
             setMaximize(false, false);
         }
 
+        doSetQuickTileMode();
         emit quickTileModeChanged();
 
         return;
     }
 
     if (mode != QuickTileMode(QuickTileFlag::None)) {
-        QPoint whichScreen = keyboard ? frameGeometry().center() : Cursor::pos();
+        QPoint whichScreen = keyboard ? frameGeometry().center() : Cursors::self()->mouse()->pos();
 
         // If trying to tile to the side that the window is already tiled to move the window to the next
         // screen if it exists, otherwise toggle the mode (set QuickTileFlag::None)
@@ -2818,7 +3007,12 @@ void AbstractClient::setQuickTileMode(QuickTileMode mode, bool keyboard)
         setFrameGeometry(geometryRestore(), geom_mode);
         checkWorkspacePosition(); // Just in case it's a different screen
     }
+    doSetQuickTileMode();
     emit quickTileModeChanged();
+}
+
+void AbstractClient::doSetQuickTileMode()
+{
 }
 
 void AbstractClient::sendToScreen(int newScreen)
@@ -2898,6 +3092,9 @@ void AbstractClient::sendToScreen(int newScreen)
 
 void AbstractClient::checkWorkspacePosition(QRect oldGeometry, int oldDesktop, QRect oldClientGeometry)
 {
+    if (isDock() || isDesktop() || !isPlaceable()) {
+        return;
+    }
     enum { Left = 0, Top, Right, Bottom };
     const int border[4] = { borderLeft(), borderTop(), borderRight(), borderBottom() };
     if( !oldGeometry.isValid())
@@ -2906,19 +3103,15 @@ void AbstractClient::checkWorkspacePosition(QRect oldGeometry, int oldDesktop, Q
         oldDesktop = desktop();
     if (!oldClientGeometry.isValid())
         oldClientGeometry = oldGeometry.adjusted(border[Left], border[Top], -border[Right], -border[Bottom]);
-    if (isDesktop())
-        return;
     if (isFullScreen()) {
         QRect area = workspace()->clientArea(FullScreenArea, this);
         if (frameGeometry() != area)
             setFrameGeometry(area);
         return;
     }
-    if (isDock())
-        return;
 
     if (maximizeMode() != MaximizeRestore) {
-        // TODO update geom_restore?
+        GeometryUpdatesBlocker block(this);
         changeMaximize(false, false, true);   // adjust size
         const QRect screenArea = workspace()->clientArea(ScreenArea, this);
         QRect geom = frameGeometry();
@@ -3106,7 +3299,7 @@ void AbstractClient::checkWorkspacePosition(QRect oldGeometry, int oldDesktop, Q
     checkOffscreenPosition(&newGeom, screenArea);
     // Obey size hints. TODO: We really should make sure it stays in the right place
     if (!isShade())
-        newGeom.setSize(adjustedSize(newGeom.size()));
+        newGeom.setSize(constrainFrameSize(newGeom.size()));
 
     if (newGeom != frameGeometry())
         setFrameGeometry(newGeom);
@@ -3126,21 +3319,207 @@ void AbstractClient::checkOffscreenPosition(QRect* geom, const QRect& screenArea
     }
 }
 
-QSize AbstractClient::adjustedSize(const QSize& frame, Sizemode mode) const
-{
-    // first, get the window size for the given frame size s
-    QSize wsize = frameSizeToClientSize(frame);
-    if (wsize.isEmpty())
-        wsize = QSize(qMax(wsize.width(), 1), qMax(wsize.height(), 1));
-
-    return sizeForClientSize(wsize, mode, false);
-}
-
-// this helper returns proper size even if the window is shaded
-// see also the comment in X11Client::setGeometry()
+/**
+ * Returns the appropriate frame size for the current client size.
+ *
+ * This is equivalent to clientSizeToFrameSize(constrainClientSize(clientSize())).
+ */
 QSize AbstractClient::adjustedSize() const
 {
-    return sizeForClientSize(clientSize());
+    return clientSizeToFrameSize(constrainClientSize(clientSize()));
+}
+
+/**
+ * Constrains the client size @p size according to a set of the window's size hints.
+ *
+ * Default implementation applies only minimum and maximum size constraints.
+ */
+QSize AbstractClient::constrainClientSize(const QSize &size, SizeMode mode) const
+{
+    Q_UNUSED(mode)
+
+    int width = size.width();
+    int height = size.height();
+
+    // When user is resizing the window, the move resize geometry may have negative width or
+    // height. In which case, we need to set negative dimensions to reasonable values.
+    if (width < 1) {
+        width = 1;
+    }
+    if (height < 1) {
+        height = 1;
+    }
+
+    const QSize minimumSize = minSize();
+    const QSize maximumSize = maxSize();
+
+    width = qBound(minimumSize.width(), width, maximumSize.width());
+    height = qBound(minimumSize.height(), height, maximumSize.height());
+
+    return QSize(width, height);
+}
+
+/**
+ * Constrains the frame size @p size according to a set of the window's size hints.
+ */
+QSize AbstractClient::constrainFrameSize(const QSize &size, SizeMode mode) const
+{
+    const QSize unconstrainedClientSize = frameSizeToClientSize(size);
+    const QSize constrainedClientSize = constrainClientSize(unconstrainedClientSize, mode);
+    return clientSizeToFrameSize(constrainedClientSize);
+}
+
+/**
+ * Returns @c true if the AbstractClient can be shown in full screen mode; otherwise @c false.
+ *
+ * Default implementation returns @c false.
+ */
+bool AbstractClient::isFullScreenable() const
+{
+    return false;
+}
+
+/**
+ * Returns @c true if the AbstractClient is currently being shown in full screen mode; otherwise @c false.
+ *
+ * A client in full screen mode occupies the entire screen with no window frame around it.
+ *
+ * Default implementation returns @c false.
+ */
+bool AbstractClient::isFullScreen() const
+{
+    return false;
+}
+
+/**
+ * Returns whether requests initiated by the user to enter or leave full screen mode are honored.
+ *
+ * Default implementation returns @c false.
+ */
+bool AbstractClient::userCanSetFullScreen() const
+{
+    return false;
+}
+
+/**
+ * Asks the AbstractClient to enter or leave full screen mode.
+ *
+ * Default implementation does nothing.
+ *
+ * @param set @c true if the AbstractClient has to be shown in full screen mode, otherwise @c false
+ * @param user @c true if the request is initiated by the user, otherwise @c false
+ */
+void AbstractClient::setFullScreen(bool set, bool user)
+{
+    Q_UNUSED(set)
+    Q_UNUSED(user)
+    qCWarning(KWIN_CORE, "%s doesn't support setting fullscreen state", metaObject()->className());
+}
+
+/**
+ * Returns @c true if the AbstractClient can be minimized; otherwise @c false.
+ *
+ * Default implementation returns @c false.
+ */
+bool AbstractClient::isMinimizable() const
+{
+    return false;
+}
+
+/**
+ * Returns @c true if the AbstractClient can be maximized; otherwise @c false.
+ *
+ * Default implementation returns @c false.
+ */
+bool AbstractClient::isMaximizable() const
+{
+    return false;
+}
+
+/**
+ * Returns the currently applied maximize mode.
+ *
+ * Default implementation returns MaximizeRestore.
+ */
+MaximizeMode AbstractClient::maximizeMode() const
+{
+    return MaximizeRestore;
+}
+
+/**
+ * Returns the last requested maximize mode.
+ *
+ * On X11, this method always matches maximizeMode(). On Wayland, it is asynchronous.
+ *
+ * Default implementation matches maximizeMode().
+ */
+MaximizeMode AbstractClient::requestedMaximizeMode() const
+{
+    return maximizeMode();
+}
+
+/**
+ * Returns the geometry of the AbstractClient before it was maximized or quick tiled.
+ */
+QRect AbstractClient::geometryRestore() const
+{
+    return m_maximizeGeometryRestore;
+}
+
+/**
+ * Sets the geometry of the AbstractClient before it was maximized or quick tiled to @p rect.
+ */
+void AbstractClient::setGeometryRestore(const QRect &rect)
+{
+    m_maximizeGeometryRestore = rect;
+}
+
+/**
+ * Toggles the maximized state along specified dimensions @p horizontal and @p vertical.
+ *
+ * If @p adjust is @c true, only frame geometry will be updated to match requestedMaximizeMode().
+ *
+ * Default implementation does nothing.
+ */
+void AbstractClient::changeMaximize(bool horizontal, bool vertical, bool adjust)
+{
+    Q_UNUSED(horizontal)
+    Q_UNUSED(vertical)
+    Q_UNUSED(adjust)
+    qCWarning(KWIN_CORE, "%s doesn't support setting maximized state", metaObject()->className());
+}
+
+void AbstractClient::updateDecoration(bool check_workspace_pos, bool force)
+{
+    Q_UNUSED(check_workspace_pos)
+    Q_UNUSED(force)
+    qCWarning(KWIN_CORE, "%s doesn't support server side decorations", metaObject()->className());
+}
+
+bool AbstractClient::noBorder() const
+{
+    return true;
+}
+
+bool AbstractClient::userCanSetNoBorder() const
+{
+    return false;
+}
+
+void AbstractClient::setNoBorder(bool set)
+{
+    Q_UNUSED(set)
+    qCWarning(KWIN_CORE, "%s doesn't support setting decorations", metaObject()->className());
+}
+
+void AbstractClient::showOnScreenEdge()
+{
+    qCWarning(KWIN_CORE, "%s doesn't support screen edge activation", metaObject()->className());
+}
+
+bool AbstractClient::isPlaceable() const
+{
+    return true;
 }
 
 }

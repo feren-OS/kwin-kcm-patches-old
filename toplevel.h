@@ -1,22 +1,11 @@
-/********************************************************************
- KWin - the KDE window manager
- This file is part of the KDE project.
+/*
+    KWin - the KDE window manager
+    This file is part of the KDE project.
 
-Copyright (C) 2006 Lubos Lunak <l.lunak@kde.org>
+    SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*********************************************************************/
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
 
 #ifndef KWIN_TOPLEVEL_H
 #define KWIN_TOPLEVEL_H
@@ -40,12 +29,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 class QOpenGLFramebufferObject;
 
-namespace KWayland
-{
-namespace Server
+namespace KWaylandServer
 {
 class SurfaceInterface;
-}
 }
 
 namespace KWin
@@ -78,20 +64,20 @@ class KWIN_EXPORT Toplevel : public QObject
      *
      * @deprecated Use frameGeometry property instead.
      */
-    Q_PROPERTY(QRect geometry READ frameGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(QRect geometry READ frameGeometry NOTIFY frameGeometryChanged)
 
     /**
      * This property holds rectangle that the pixmap or buffer of this Toplevel
      * occupies on the screen. This rectangle includes invisible portions of the
      * client, e.g. client-side drop shadows, etc.
      */
-    Q_PROPERTY(QRect bufferGeometry READ bufferGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(QRect bufferGeometry READ bufferGeometry)
 
     /**
      * This property holds the geometry of the Toplevel, excluding invisible
      * portions, e.g. server-side and client-side drop-shadows, etc.
      */
-    Q_PROPERTY(QRect frameGeometry READ frameGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(QRect frameGeometry READ frameGeometry NOTIFY frameGeometryChanged)
 
     /**
      * This property holds the position of the Toplevel's frame geometry.
@@ -279,7 +265,7 @@ class KWIN_EXPORT Toplevel : public QObject
      * Interface to the Wayland Surface.
      * Relevant only in Wayland, in X11 it will be nullptr
      */
-    Q_PROPERTY(KWayland::Server::SurfaceInterface *surface READ surface)
+    Q_PROPERTY(KWaylandServer::SurfaceInterface *surface READ surface)
 
     /**
      * Whether the window is a popup.
@@ -297,6 +283,13 @@ class KWIN_EXPORT Toplevel : public QObject
      * This property holds a UUID to uniquely identify this Toplevel.
      */
     Q_PROPERTY(QUuid internalId READ internalId CONSTANT)
+
+    /**
+     * The pid of the process owning this window.
+     *
+     * @since 5.20
+     */
+    Q_PROPERTY(int pid READ pid CONSTANT)
 
 public:
     explicit Toplevel();
@@ -330,6 +323,10 @@ public:
      * server-side and client-side drop shadows, etc.
      */
     QRect frameGeometry() const;
+    /**
+     * Returns the geometry of the client window, in global screen coordinates.
+     */
+    QRect clientGeometry() const;
     /**
      * Returns the extents of the server-side decoration.
      *
@@ -375,7 +372,7 @@ public:
      * The default implementation is a 1:1 mapping meaning the frame is part of the content.
      */
     virtual QPoint clientContentPos() const;
-    virtual QSize clientSize() const = 0;
+    QSize clientSize() const;
     /**
      * Returns a rectangle that the window occupies on the screen, including drop-shadows.
      */
@@ -457,6 +454,7 @@ public:
     // these call workspace->addRepaint(), but first transform the damage if needed
     void addWorkspaceRepaint(const QRect& r);
     void addWorkspaceRepaint(int x, int y, int w, int h);
+    void addWorkspaceRepaint(const QRegion &region);
     QRegion repaints() const;
     void resetRepaints();
     QRegion damage() const;
@@ -517,8 +515,8 @@ public:
     void setSkipCloseAnimation(bool set);
 
     quint32 surfaceId() const;
-    KWayland::Server::SurfaceInterface *surface() const;
-    void setSurface(KWayland::Server::SurfaceInterface *surface);
+    KWaylandServer::SurfaceInterface *surface() const;
+    void setSurface(KWaylandServer::SurfaceInterface *surface);
 
     const QSharedPointer<QOpenGLFramebufferObject> &internalFramebufferObject() const;
     QImage internalImageObject() const;
@@ -589,6 +587,11 @@ public:
 Q_SIGNALS:
     void opacityChanged(KWin::Toplevel* toplevel, qreal oldOpacity);
     void damaged(KWin::Toplevel* toplevel, const QRect& damage);
+    void inputTransformationChanged();
+    /**
+     * This signal is emitted when the Toplevel's frame geometry changes.
+     * @deprecated since 5.19, use frameGeometryChanged instead
+     */
     void geometryChanged();
     void geometryShapeChanged(KWin::Toplevel* toplevel, const QRect& old);
     void paddingChanged(KWin::Toplevel* toplevel, const QRect& old);
@@ -652,6 +655,19 @@ Q_SIGNALS:
      */
     void shadowChanged();
 
+    /**
+     * This signal is emitted when the Toplevel's buffer geometry changes.
+     */
+    void bufferGeometryChanged(KWin::Toplevel *toplevel, const QRect &oldGeometry);
+    /**
+     * This signal is emitted when the Toplevel's frame geometry changes.
+     */
+    void frameGeometryChanged(KWin::Toplevel *toplevel, const QRect &oldGeometry);
+    /**
+     * This signal is emitted when the Toplevel's client geometry has changed.
+     */
+    void clientGeometryChanged(KWin::Toplevel *toplevel, const QRect &oldGeometry);
+
 protected Q_SLOTS:
     /**
      * Checks whether the screen number for this Toplevel changed and updates if needed.
@@ -692,13 +708,12 @@ protected:
     Xcb::Property fetchSkipCloseAnimation() const;
     void readSkipCloseAnimation(Xcb::Property &prop);
     void getSkipCloseAnimation();
-    virtual void debug(QDebug& stream) const = 0;
     void copyToDeleted(Toplevel* c);
     void disownDataPassedToDeleted();
-    friend QDebug& operator<<(QDebug& stream, const Toplevel*);
     void deleteEffectWindow();
     void setDepth(int depth);
     QRect m_frameGeometry;
+    QRect m_clientGeometry;
     xcb_visualid_t m_visual;
     int bit_depth;
     NETWinInfo* info;
@@ -732,7 +747,7 @@ private:
     int m_screen;
     bool m_skipCloseAnimation;
     quint32 m_surfaceId = 0;
-    KWayland::Server::SurfaceInterface *m_surface = nullptr;
+    KWaylandServer::SurfaceInterface *m_surface = nullptr;
     // when adding new data members, check also copyToDeleted()
     qreal m_screenScale = 1.0;
 };
@@ -746,6 +761,16 @@ inline void Toplevel::setWindowHandles(xcb_window_t w)
 {
     Q_ASSERT(!m_client.isValid() && w != XCB_WINDOW_NONE);
     m_client.reset(w, false);
+}
+
+inline QRect Toplevel::clientGeometry() const
+{
+    return m_clientGeometry;
+}
+
+inline QSize Toplevel::clientSize() const
+{
+    return m_clientGeometry.size();
 }
 
 inline QRect Toplevel::frameGeometry() const
@@ -989,7 +1014,7 @@ inline quint32 Toplevel::surfaceId() const
     return m_surfaceId;
 }
 
-inline KWayland::Server::SurfaceInterface *Toplevel::surface() const
+inline KWaylandServer::SurfaceInterface *Toplevel::surface() const
 {
     return m_surface;
 }
@@ -1035,7 +1060,7 @@ inline bool Toplevel::isPopupWindow() const
     }
 }
 
-QDebug& operator<<(QDebug& stream, const Toplevel*);
+QDebug operator<<(QDebug debug, const Toplevel *toplevel);
 
 } // namespace
 Q_DECLARE_METATYPE(KWin::Toplevel*)
